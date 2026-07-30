@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #0A0A0B; color: #EEEEEC; }
+body { font-feature-settings: "ss01", "cv11"; }
+
+/* Monaco line-decoration overlays for hotspots */
+.hotspot-high  { background: rgba(229, 72, 77, 0.10); }
+.hotspot-med   { background: rgba(245, 165, 36, 0.10); }
+.hotspot-low   { background: rgba(148, 163, 184, 0.10); }
+
+.hotspot-glyph-high  { background: #E5484D; width: 3px !important; margin-left: 4px; }
+.hotspot-glyph-med   { background: #F5A524; width: 3px !important; margin-left: 4px; }
+.hotspot-glyph-low   { background: #94A3B8; width: 3px !important; margin-left: 4px; }
+
+/* Selection-active hotspot */
+.hotspot-active { background: rgba(124, 158, 255, 0.14); }
+
+/* Small utility */
+.hairline { border-color: #26262B; }

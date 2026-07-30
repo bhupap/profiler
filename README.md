@@ -38,6 +38,7 @@ Open http://localhost:3000 → **Analyze** → click a hotspot's **"View suggest
 - **`lib/parseAnalysis.ts`** — JSON recovery from the model reply.
 - **`lib/applyFix.ts`** — the "accept fix" line-splice.
 - **`lib/samples.ts`** — starter snippets + `isSample()`.
-- **`hooks/`** — state logic lives in hooks (`useAnalysis`), so `page.tsx` stays UI-only.
+- **`lib/analyzeClient.ts`** — the `POST /api/analyze` request helper.
+- **`app/page.tsx`** — owns the open documents (editor tabs); each tab keeps its own code, language, and analysis state.
 - **`components/`** — `CodeEditor`, `HotspotPanel`, `DiffView`, `FlameGraph`.
 - **`examples/`** — complex sample files for demos (see `examples/README.md`).

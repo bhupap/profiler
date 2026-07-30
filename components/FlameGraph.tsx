@@ -27,10 +27,6 @@ export default function FlameGraph({ nodes, onSelect }: Props) {
   const sorted = [...nodes].sort((a, b) => b.weight - a.weight);
   const total = sorted.reduce((s, n) => s + n.weight, 0) || 1;
 
-  const width = 100; // percent-based
-  const rowH = 34;
-  const gap = 6;
-
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
       <div className="mb-1 flex items-center justify-between">
@@ -40,47 +36,55 @@ export default function FlameGraph({ nodes, onSelect }: Props) {
         <span className="text-2xs text-inkDim italic">estimated · not measured runtime</span>
       </div>
 
-      <svg
-        viewBox={`0 0 ${width} ${sorted.length * (rowH + gap)}`}
-        preserveAspectRatio="none"
-        className="mt-3 w-full"
-        style={{ height: sorted.length * (rowH + gap) }}
-      >
+      {/* Bars are plain HTML so the labels render crisp — an SVG scaled to the
+          container width distorts any text inside it. Width encodes relative
+          estimated cost; a floor keeps tiny bars readable. */}
+      <div className="mt-3 space-y-1.5">
         {sorted.map((node, i) => {
-          const w = (node.weight / total) * width;
-          const y = i * (rowH + gap);
+          const pct = (node.weight / total) * 100;
           const color = COLORS[i % COLORS.length];
+          // Wide bars carry the label inside; narrow ones keep their true width
+          // and put the label on the track beside them so it stays readable.
+          const labelInside = pct >= 30;
           return (
-            <g
+            <button
               key={i}
+              type="button"
               onClick={() => onSelect?.(node)}
-              style={{ cursor: onSelect ? "pointer" : "default" }}
+              title={`${node.label} · ${node.complexity}`}
+              className={`group block w-full rounded-md text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+                onSelect ? "cursor-pointer" : "cursor-default"
+              }`}
             >
-              <rect
-                x={0}
-                y={y}
-                width={Math.max(w, 12)}
-                height={rowH}
-                rx={2}
-                fill={color}
-                opacity={0.85}
-              />
-              <text
-                x={2}
-                y={y + rowH / 2 + 3}
-                fontSize={5.5}
-                fill="#0F1116"
-                fontWeight={600}
-                style={{ fontFamily: "ui-monospace, monospace" }}
-              >
-                {node.label} · {node.complexity}
-              </text>
-            </g>
+              <div className="flex h-9 w-full items-center overflow-hidden rounded-md bg-surfaceHi">
+                <div
+                  className="flex h-full shrink-0 items-center gap-2 rounded-md px-3 transition-[filter] group-hover:brightness-110"
+                  style={{ width: `${Math.max(pct, 5)}%`, backgroundColor: color }}
+                >
+                  {labelInside && (
+                    <>
+                      <span className="truncate font-mono text-xs font-semibold text-canvas">
+                        {node.label}
+                      </span>
+                      <span className="ml-auto shrink-0 font-mono text-2xs font-medium text-canvas/70">
+                        {node.complexity}
+                      </span>
+                    </>
+                  )}
+                </div>
+                {!labelInside && (
+                  <span className="truncate px-3 font-mono text-xs text-inkMute">
+                    {node.label}
+                    <span className="text-inkDim"> · {node.complexity}</span>
+                  </span>
+                )}
+              </div>
+            </button>
           );
         })}
-      </svg>
+      </div>
 
-      <div className="mt-2 text-2xs text-inkDim">
+      <div className="mt-3 text-2xs text-inkDim">
         Wider bar = higher estimated cost. Click a bar to jump to that block.
       </div>
     </div>

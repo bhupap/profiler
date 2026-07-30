@@ -9,3 +9,4 @@ build/
 *.log
 .vercel
 next-env.d.ts
+*.tsbuildinfo

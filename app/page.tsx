@@ -16,6 +16,15 @@ import LanguageMenu from "@/components/LanguageMenu";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
+// Analysis lenses shown in the secondary toolbar. "Complexity" is live; the rest
+// are roadmap placeholders (disabled, "soon") until they ship.
+const LENSES = [
+  { key: "complexity", label: "Complexity", live: true, title: "Big-O complexity + hotspots" },
+  { key: "runtime", label: "Runtime", live: false, title: "Measured runtime in a sandbox (real flame graph)" },
+  { key: "security", label: "Security", live: false, title: "Security & bug scan" },
+  { key: "memory", label: "Memory", live: false, title: "Space / memory analysis" },
+];
+
 // One open document = one tab. Each carries its own code + analysis state, so
 // switching tabs preserves per-file results instead of clobbering them.
 type Doc = {
@@ -192,6 +201,47 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {/* Analysis lenses — Complexity is live; the rest are coming soon. */}
+      <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-border bg-surface/20 px-6 py-2">
+        <div className="flex items-center gap-2">
+          <span className="mr-1 font-mono text-2xs uppercase tracking-wider text-inkDim">Lens</span>
+          {LENSES.map((l) =>
+            l.live ? (
+              <span
+                key={l.key}
+                className="rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi"
+              >
+                {l.label}
+              </span>
+            ) : (
+              <button
+                key={l.key}
+                type="button"
+                disabled
+                title={`${l.title} — coming soon`}
+                className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+              >
+                {l.label}
+                <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
+                  soon
+                </span>
+              </button>
+            )
+          )}
+        </div>
+        <button
+          type="button"
+          disabled
+          title="Export / share report — coming soon"
+          className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+        >
+          Export
+          <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
+            soon
+          </span>
+        </button>
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Editor console ──────────────────────────────────────────── */}

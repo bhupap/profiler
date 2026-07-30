@@ -34,4 +34,19 @@ export type AnalysisResult = {
   detectedPatterns?: string[];
 };
 
-export type SupportedLanguage = "javascript" | "typescript" | "python";
+// Values are Monaco language ids so they can be passed straight to the editor.
+export type SupportedLanguage =
+  | "javascript"
+  | "typescript"
+  | "python"
+  | "go"
+  | "rust"
+  | "java"
+  | "csharp"
+  | "cpp"
+  | "c"
+  | "ruby"
+  | "php"
+  | "kotlin"
+  | "swift"
+  | "sql";

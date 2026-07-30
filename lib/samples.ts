@@ -1,10 +1,11 @@
 import type { SupportedLanguage } from "./types";
 
 /**
- * Starter snippets shown in the editor, one per language.
- * Each has an obvious O(n^2) hotspot so the analyzer has something to find.
+ * Starter snippets shown in the editor. Not every language has one — those fall
+ * back to a neutral placeholder via `sampleFor`. Each snippet has an obvious
+ * O(n^2) hotspot so the analyzer has something to find.
  */
-export const SAMPLES: Record<SupportedLanguage, string> = {
+export const SAMPLES: Partial<Record<SupportedLanguage, string>> = {
   javascript: `// Find duplicate values in an array
 function findDuplicates(arr) {
   const dupes = [];
@@ -37,8 +38,16 @@ def find_pairs(nums, target):
 `,
 };
 
-// True if the given code is one of the built-in samples (used to decide
-// whether it's safe to swap in a different sample on language change).
+const PLACEHOLDER = "// Paste your code here, then press Analyze";
+
+// The starter content for a language: its sample, or a neutral placeholder.
+export function sampleFor(language: SupportedLanguage): string {
+  return SAMPLES[language] ?? `${PLACEHOLDER}\n`;
+}
+
+// True if the given code is still pristine starter content (a built-in sample
+// or the placeholder) — used to decide whether it's safe to swap it out on a
+// language change.
 export function isSample(code: string): boolean {
-  return Object.values(SAMPLES).includes(code);
+  return Object.values(SAMPLES).includes(code) || code.trim() === PLACEHOLDER;
 }

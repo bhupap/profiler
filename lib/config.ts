@@ -5,6 +5,7 @@
  * live here, so there is exactly one place to change them.
  */
 import type { SupportedLanguage } from "./types";
+import { LANGUAGES } from "./languages";
 
 // The Anthropic model used for analysis.
 export const MODEL = "claude-sonnet-5";
@@ -15,23 +16,13 @@ export const MAX_CODE_LENGTH = 20_000;
 // Largest file we accept via upload, in bytes.
 export const MAX_FILE_BYTES = 20_000;
 
-// Languages the tool understands.
-export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
-  "javascript",
-  "typescript",
-  "python",
-];
+// Languages the tool understands — derived from lib/languages.ts.
+export const SUPPORTED_LANGUAGES: SupportedLanguage[] = LANGUAGES.map((l) => l.id);
 
 // Map a file extension to a language id (used by upload + language detection).
-export const EXT_TO_LANG: Record<string, SupportedLanguage> = {
-  js: "javascript",
-  jsx: "javascript",
-  mjs: "javascript",
-  cjs: "javascript",
-  ts: "typescript",
-  tsx: "typescript",
-  py: "python",
-};
+export const EXT_TO_LANG: Record<string, SupportedLanguage> = Object.fromEntries(
+  LANGUAGES.flatMap((l) => l.exts.map((ext) => [ext, l.id]))
+);
 
 // The `accept` attribute for the file input, derived from EXT_TO_LANG.
 export const FILE_ACCEPT_ATTR = Object.keys(EXT_TO_LANG)

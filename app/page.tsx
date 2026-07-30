@@ -3,23 +3,18 @@
 import { useCallback, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
-import { SAMPLES, isSample } from "@/lib/samples";
+import { isSample, sampleFor } from "@/lib/samples";
 import { randomSnippet } from "@/lib/demoSnippets";
+import { langMeta } from "@/lib/languages";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
 import { applyFix } from "@/lib/applyFix";
 import HotspotPanel from "@/components/HotspotPanel";
 import DiffView from "@/components/DiffView";
 import FlameGraph from "@/components/FlameGraph";
+import LanguageMenu from "@/components/LanguageMenu";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
-
-const LANGS: { id: SupportedLanguage; short: string; ext: string; dot: string }[] = [
-  { id: "javascript", short: "JS", ext: "js", dot: "#FBBF24" },
-  { id: "typescript", short: "TS", ext: "ts", dot: "#5CD6E8" },
-  { id: "python", short: "PY", ext: "py", dot: "#5DCAA5" },
-];
-const langMeta = (l: SupportedLanguage) => LANGS.find((x) => x.id === l)!;
 
 // One open document = one tab. Each carries its own code + analysis state, so
 // switching tabs preserves per-file results instead of clobbering them.
@@ -35,7 +30,7 @@ type Doc = {
   diffIndex: number | null; // hotspot whose diff drawer is open
 };
 
-const docName = (d: Doc) => d.filename ?? `sample.${langMeta(d.language).ext}`;
+const docName = (d: Doc) => d.filename ?? `sample.${langMeta(d.language).exts[0]}`;
 
 function makeDoc(id: string, language: SupportedLanguage, code: string, filename: string | null = null): Doc {
   return { id, language, code, filename, result: null, loading: false, error: null, activeIndex: null, diffIndex: null };
@@ -43,7 +38,7 @@ function makeDoc(id: string, language: SupportedLanguage, code: string, filename
 
 export default function Home() {
   const idRef = useRef(1);
-  const [docs, setDocs] = useState<Doc[]>(() => [makeDoc("d0", "javascript", SAMPLES.javascript)]);
+  const [docs, setDocs] = useState<Doc[]>(() => [makeDoc("d0", "javascript", sampleFor("javascript"))]);
   const [activeId, setActiveId] = useState("d0");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -110,7 +105,7 @@ export default function Home() {
         return {
           ...d,
           language: lang,
-          code: swap ? SAMPLES[lang] : d.code,
+          code: swap ? sampleFor(lang) : d.code,
           filename: swap ? null : d.filename,
           result: null, error: null, activeIndex: null, diffIndex: null,
         };
@@ -132,7 +127,7 @@ export default function Home() {
     const idx = docs.findIndex((d) => d.id === id);
     const next = docs.filter((d) => d.id !== id);
     if (next.length === 0) {
-      const fresh = makeDoc(`d${idRef.current++}`, "javascript", SAMPLES.javascript);
+      const fresh = makeDoc(`d${idRef.current++}`, "javascript", sampleFor("javascript"));
       setDocs([fresh]);
       setActiveId(fresh.id);
       return;
@@ -148,7 +143,7 @@ export default function Home() {
   return (
     <main className="flex h-screen flex-col bg-canvas">
       {/* ── Command bar ───────────────────────────────────────────────── */}
-      <header className="flex shrink-0 items-center justify-between border-b border-border bg-surface/50 px-6 py-3.5 backdrop-blur">
+      <header className="relative z-30 flex shrink-0 items-center justify-between border-b border-border bg-surface/50 px-6 py-3.5 backdrop-blur">
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 animate-pulseDot rounded-full bg-accent shadow-[0_0_10px_#5CD6E8]" />
           <span className="font-display text-sm font-semibold tracking-wide text-ink">PROFILER</span>
@@ -160,20 +155,8 @@ export default function Home() {
         <div className="flex items-center gap-2.5">
           <input ref={fileInputRef} type="file" accept={FILE_ACCEPT_ATTR} onChange={handleFileUpload} className="hidden" />
 
-          {/* Language segmented control (affects the active tab) */}
-          <div className="flex items-center rounded-lg border border-border bg-surface p-0.5">
-            {LANGS.map((l) => (
-              <button
-                key={l.id}
-                onClick={() => handleLanguageChange(l.id)}
-                className={`rounded-md px-2.5 py-1.5 font-mono text-2xs font-medium uppercase tracking-wider transition-colors ${
-                  active.language === l.id ? "bg-surfaceMax text-accentHi" : "text-inkDim hover:text-inkMute"
-                }`}
-              >
-                {l.short}
-              </button>
-            ))}
-          </div>
+          {/* Language picker (affects the active tab) */}
+          <LanguageMenu value={active.language} onChange={handleLanguageChange} />
 
           <button
             onClick={() => fileInputRef.current?.click()}

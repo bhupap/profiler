@@ -13,6 +13,12 @@ import FlameGraph from "@/components/FlameGraph";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
+const LANGS: { id: SupportedLanguage; short: string; ext: string }[] = [
+  { id: "javascript", short: "JS", ext: "js" },
+  { id: "typescript", short: "TS", ext: "ts" },
+  { id: "python", short: "PY", ext: "py" },
+];
+
 export default function Home() {
   const [language, setLanguage] = useState<SupportedLanguage>("javascript");
   const [code, setCode] = useState<string>(SAMPLES.javascript);
@@ -72,47 +78,91 @@ export default function Home() {
   }
 
   const diffHotspot = diffIndex != null ? result?.hotspots[diffIndex] : null;
+  const activeLang = LANGS.find((l) => l.id === language)!;
+  const displayName = filename ?? `sample.${activeLang.ext}`;
+  const lineCount = code ? code.split("\n").length : 0;
 
   return (
     <main className="flex h-screen flex-col bg-canvas">
-      <header className="flex items-center justify-between border-b border-border bg-surface/60 backdrop-blur px-6 py-4">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-accent" />
-            <span className="font-mono text-sm tracking-wider text-ink">PROFILER</span>
-            <span className="ml-1 rounded bg-surfaceHi px-1.5 py-0.5 text-2xs text-inkMute">week 2</span>
-          </div>
-          {filename && (
-            <div className="flex items-center gap-2 rounded-md border border-border bg-surfaceHi px-2.5 py-1">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-inkMute" />
-              <span className="font-mono text-xs text-inkMute max-w-[240px] truncate" title={filename}>{filename}</span>
-            </div>
-          )}
+      {/* ── Command bar ───────────────────────────────────────────────── */}
+      <header className="flex shrink-0 items-center justify-between border-b border-border bg-surface/50 px-6 py-3.5 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <span className="h-2 w-2 animate-pulseDot rounded-full bg-accent shadow-[0_0_10px_#5CD6E8]" />
+          <span className="font-display text-sm font-semibold tracking-wide text-ink">PROFILER</span>
+          <span className="rounded-md border border-border bg-surfaceMax px-1.5 py-0.5 font-mono text-2xs text-inkMute">
+            week 2
+          </span>
+          <span className="ml-1 hidden font-mono text-2xs uppercase tracking-wider text-inkDim sm:inline">
+            complexity diagnostics
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <input ref={fileInputRef} type="file" accept={FILE_ACCEPT_ATTR} onChange={handleFileUpload} className="hidden" />
-          <button onClick={() => fileInputRef.current?.click()} className="rounded-md border border-border bg-surface px-3.5 py-2 text-xs font-medium text-ink hover:bg-surfaceHi hover:border-borderStrong">Upload file</button>
-          <select value={language} onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)} className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-ink focus:outline-none focus:ring-1 focus:ring-accent cursor-pointer hover:border-borderStrong">
-            <option value="javascript">JavaScript</option>
-            <option value="typescript">TypeScript</option>
-            <option value="python">Python</option>
-          </select>
-          <button onClick={handleAnalyze} disabled={loading || !code.trim()} className="rounded-md bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
+
+          {/* Language segmented control */}
+          <div className="flex items-center rounded-lg border border-border bg-surface p-0.5">
+            {LANGS.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => handleLanguageChange(l.id)}
+                className={`rounded-md px-2.5 py-1.5 font-mono text-2xs font-medium uppercase tracking-wider transition-colors ${
+                  language === l.id ? "bg-surfaceMax text-accentHi" : "text-inkDim hover:text-inkMute"
+                }`}
+              >
+                {l.short}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-inkMute transition-colors hover:border-borderStrong hover:text-ink"
+          >
+            Upload
+          </button>
+
+          <button
+            onClick={handleAnalyze}
+            disabled={loading || !code.trim()}
+            className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-all hover:bg-accentHi hover:shadow-glow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent disabled:hover:shadow-none"
+          >
             {loading ? "Analyzing…" : "Analyze"}
           </button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <section className="flex flex-1 flex-col border-r border-border overflow-hidden">
-          <div className="flex-1 min-h-0">
-            <CodeEditor value={code} onChange={setCode} language={language} hotspots={result?.hotspots ?? []} activeHotspotIndex={activeIndex} />
+        {/* ── Editor console ──────────────────────────────────────────── */}
+        <section className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border">
+          <div className="flex shrink-0 items-center justify-between border-b border-border bg-surface/30 px-4 py-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-inkDim" />
+              <span className="truncate font-mono text-xs text-inkMute" title={displayName}>{displayName}</span>
+              {filename && (
+                <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-2xs uppercase text-inkDim">
+                  {activeLang.short}
+                </span>
+              )}
+            </div>
+            <span className="shrink-0 font-mono text-2xs text-inkDim">
+              {lineCount} {lineCount === 1 ? "line" : "lines"} · {code.length.toLocaleString()} chars
+            </span>
+          </div>
+
+          <div className="min-h-0 flex-1">
+            <CodeEditor
+              value={code}
+              onChange={setCode}
+              language={language}
+              hotspots={result?.hotspots ?? []}
+              activeHotspotIndex={activeIndex}
+            />
           </div>
 
           {/* Diff drawer + flame graph live under the editor */}
           {(diffHotspot?.suggestedCode || result?.flameGraph) && (
-            <div className="max-h-[45%] overflow-y-auto custom-scroll border-t border-border p-4 space-y-4">
+            <div className="custom-scroll max-h-[46%] shrink-0 space-y-4 overflow-y-auto border-t border-border bg-surface/20 p-4">
               {diffHotspot?.suggestedCode && (
                 <DiffView
                   original={code.split("\n").slice(diffHotspot.startLine - 1, diffHotspot.endLine).join("\n")}
@@ -134,7 +184,8 @@ export default function Home() {
           )}
         </section>
 
-        <aside className="w-[440px] shrink-0 bg-canvas">
+        {/* ── Diagnostics ─────────────────────────────────────────────── */}
+        <aside className="w-[500px] shrink-0 bg-canvas xl:w-[580px]">
           <HotspotPanel
             result={result}
             loading={loading}

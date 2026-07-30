@@ -19,7 +19,7 @@ type Props = {
   onSelect?: (node: FlameNode) => void;
 };
 
-const COLORS = ["#F87171", "#FBBF24", "#7C9EFF", "#5DCAA5", "#A8ADB8"];
+const COLORS = ["#FB7185", "#FBBF24", "#5CD6E8", "#5DCAA5", "#8B93A3"];
 
 export default function FlameGraph({ nodes, onSelect }: Props) {
   if (!nodes || nodes.length === 0) return null;
@@ -28,12 +28,12 @@ export default function FlameGraph({ nodes, onSelect }: Props) {
   const total = sorted.reduce((s, n) => s + n.weight, 0) || 1;
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="fade-in rounded-xl border border-border bg-surface p-4">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-2xs uppercase tracking-widest text-inkMute">
+        <span className="font-mono text-2xs uppercase tracking-widest text-inkMute">
           Estimated cost breakdown
         </span>
-        <span className="text-2xs text-inkDim italic">estimated · not measured runtime</span>
+        <span className="font-mono text-2xs italic text-inkDim">estimated · not measured runtime</span>
       </div>
 
       {/* Bars are plain HTML so the labels render crisp — an SVG scaled to the

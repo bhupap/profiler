@@ -1,9 +1,9 @@
 import type { SupportedLanguage } from "./types";
 
 /**
- * WEEK 2 system prompt.
- * Now asks the model for: suggestedCode per hotspot, a flameGraph cost
- * breakdown, and to take the static-analysis hints into account.
+ * System prompt.
+ * Asks the model for: suggestedCode per hotspot, a flameGraph cost breakdown,
+ * and to take the static-analysis hints into account.
  */
 export function buildSystemPrompt(
   language: SupportedLanguage,

@@ -1,7 +1,7 @@
 import type { SupportedLanguage } from "./types";
 
 /**
- * WEEK 2 — Static pattern detection.
+ * Static pattern detection.
  *
  * This is a lightweight, heuristic pass that runs BEFORE the LLM and feeds it
  * concrete hints ("I saw a nested loop on lines 3-9"). The idea is that the LLM

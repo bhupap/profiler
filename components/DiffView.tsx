@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * WEEK 2 — Side-by-side diff.
+ * Side-by-side diff.
  *
  * Deliberately dependency-free: a real version would use a proper diff library
  * (e.g. `diff` or `react-diff-viewer`) for line-level alignment and highlighting.

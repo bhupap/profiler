@@ -3,7 +3,7 @@
 import type { FlameNode } from "@/lib/types";
 
 /**
- * WEEK 2 — Synthetic flame graph.
+ * Synthetic flame graph.
  *
  * IMPORTANT: this is an ESTIMATE, not a measurement. We can't safely execute
  * arbitrary user code in a serverless function, so instead of real sampled
@@ -11,8 +11,8 @@ import type { FlameNode } from "@/lib/types";
  * per block. It reads like a flame graph and points at the expensive spots,
  * but it is honest about being an estimate (note the label).
  *
- * FUTURE: week 3's watchdog can actually run code in a sandbox with a step
- * budget — that's the path to a *measured* graph later.
+ * FUTURE: a sandboxed runner with a step budget could actually execute the
+ * code — that's the path to a *measured* graph later.
  */
 type Props = {
   nodes: FlameNode[];

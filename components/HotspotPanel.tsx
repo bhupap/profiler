@@ -8,7 +8,7 @@ type Props = {
   error: string | null;
   activeIndex: number | null;
   onSelect: (i: number | null) => void;
-  // WEEK 2: open the diff for a given hotspot
+  // open the diff for a given hotspot
   onViewFix: (i: number) => void;
 };
 

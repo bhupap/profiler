@@ -89,10 +89,7 @@ export default function Home() {
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 animate-pulseDot rounded-full bg-accent shadow-[0_0_10px_#5CD6E8]" />
           <span className="font-display text-sm font-semibold tracking-wide text-ink">PROFILER</span>
-          <span className="rounded-md border border-border bg-surfaceMax px-1.5 py-0.5 font-mono text-2xs text-inkMute">
-            week 2
-          </span>
-          <span className="ml-1 hidden font-mono text-2xs uppercase tracking-wider text-inkDim sm:inline">
+          <span className="hidden font-mono text-2xs uppercase tracking-wider text-inkDim sm:inline">
             complexity diagnostics
           </span>
         </div>

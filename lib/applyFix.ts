@@ -4,7 +4,7 @@ import type { Hotspot } from "./types";
  * Replace the lines a hotspot covers (startLine..endLine, 1-indexed inclusive)
  * with the hotspot's suggestedCode, and return the new full source.
  *
- * Extracted so week 2 and week 3 share one implementation of "accept fix"
+ * Extracted so every caller shares one implementation of "accept fix"
  * instead of each keeping its own copy.
  */
 export function applyFix(code: string, hotspot: Hotspot): string {

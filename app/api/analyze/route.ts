@@ -11,8 +11,8 @@ export const maxDuration = 45; // suggestions + flame graph take longer
 
 /**
  * POST /api/analyze
- * WEEK 2: runs a static pre-pass, then asks the model for hotspots + suggested
- * code + an estimated flame graph.
+ * Runs a static pre-pass, then asks the model for hotspots + suggested code +
+ * an estimated flame graph.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);

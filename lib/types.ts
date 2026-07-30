@@ -1,5 +1,9 @@
 export type Severity = "high" | "medium" | "low";
 
+// Which analysis lens the request runs. "complexity" is live; the rest are
+// gated behind feature flags (see lib/features.ts).
+export type AnalysisMode = "complexity" | "security" | "memory" | "runtime";
+
 export type Hotspot = {
   startLine: number;
   endLine: number;

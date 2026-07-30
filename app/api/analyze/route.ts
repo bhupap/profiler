@@ -4,7 +4,9 @@ import { detectPatterns } from "@/lib/staticAnalysis";
 import { createCompletion } from "@/lib/anthropic";
 import { extractAnalysisJson } from "@/lib/parseAnalysis";
 import { MAX_CODE_LENGTH, SUPPORTED_LANGUAGES } from "@/lib/config";
-import type { AnalysisResult, SupportedLanguage } from "@/lib/types";
+import type { AnalysisMode, AnalysisResult, SupportedLanguage } from "@/lib/types";
+
+const MODES: AnalysisMode[] = ["complexity", "security", "memory", "runtime"];
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // suggestions + flame graph + larger token budget
@@ -20,12 +22,17 @@ export async function POST(req: NextRequest) {
 
   const code = String(body.code ?? "").trim();
   const language = body.language as SupportedLanguage;
+  const mode: AnalysisMode = MODES.includes(body.mode) ? body.mode : "complexity";
 
   if (!code) return err("No code provided", 400);
   if (code.length > MAX_CODE_LENGTH)
     return err(`Code exceeds ${MAX_CODE_LENGTH} characters`, 413);
   if (!SUPPORTED_LANGUAGES.includes(language))
     return err(`Language must be one of: ${SUPPORTED_LANGUAGES.join(", ")}`, 400);
+  // Measured runtime needs an isolated sandbox to execute code — not available
+  // server-side. Fail clearly rather than ever running untrusted input.
+  if (mode === "runtime")
+    return err("Measured runtime requires a sandbox runner — not available yet.", 501);
   if (!process.env.ANTHROPIC_API_KEY)
     return err("Server missing ANTHROPIC_API_KEY", 500);
 
@@ -35,11 +42,11 @@ export async function POST(req: NextRequest) {
   try {
     const text = await createCompletion({
       apiKey: process.env.ANTHROPIC_API_KEY,
-      system: buildSystemPrompt(language, detectedPatterns),
+      system: buildSystemPrompt(language, detectedPatterns, mode),
       messages: [
         {
           role: "user",
-          content: `Analyze this ${language} code. Remember: JSON only.\n\n\`\`\`${language}\n${code}\n\`\`\``,
+          content: `Analyze this ${language} code (${mode} lens). Remember: JSON only.\n\n\`\`\`${language}\n${code}\n\`\`\``,
         },
       ],
     });

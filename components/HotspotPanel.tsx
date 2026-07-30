@@ -1,6 +1,7 @@
 "use client";
 
 import type { AnalysisResult, Hotspot } from "@/lib/types";
+import { FEATURES } from "@/lib/features";
 
 type Props = {
   result: AnalysisResult | null;
@@ -191,22 +192,31 @@ function HotspotRow({
               </div>
             )}
 
-            {hs.suggestedCode && (
-              // Temporarily disabled — the diff/accept flow ships next. Kept as a
-              // disabled button (still wired to onViewFix) so re-enabling is a
-              // one-line change: drop `disabled` and restore the accent styling.
-              <button
-                type="button"
-                disabled
-                onClick={(e) => { e.stopPropagation(); onViewFix(); }}
-                className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-xs font-medium text-inkDim"
-              >
-                View suggested code
-                <span className="rounded-full border border-border bg-surfaceMax px-2 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-                  coming soon
-                </span>
-              </button>
-            )}
+            {hs.suggestedCode &&
+              (FEATURES.suggestedFixes ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onViewFix(); }}
+                  className="group flex w-full items-center justify-center gap-2 rounded-lg border border-accentLine bg-accentSoft px-3 py-2.5 text-xs font-medium text-accentHi transition-all hover:shadow-glow"
+                >
+                  View suggested code
+                  <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                </button>
+              ) : (
+                // Gated off (FEATURES.suggestedFixes) — disabled with a "coming
+                // soon" tag. Flip the flag to enable the real diff/accept flow.
+                <button
+                  type="button"
+                  disabled
+                  onClick={(e) => { e.stopPropagation(); onViewFix(); }}
+                  className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-xs font-medium text-inkDim"
+                >
+                  View suggested code
+                  <span className="rounded-full border border-border bg-surfaceMax px-2 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
+                    coming soon
+                  </span>
+                </button>
+              ))}
           </div>
         </div>
       </div>

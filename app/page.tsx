@@ -2,28 +2,41 @@
 
 import { useCallback, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
+import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
 import { isSample, sampleFor } from "@/lib/samples";
 import { randomSnippet } from "@/lib/demoSnippets";
 import { langMeta } from "@/lib/languages";
+import { FEATURES } from "@/lib/features";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
+import { analysisToMarkdown } from "@/lib/report";
 import { applyFix } from "@/lib/applyFix";
 import HotspotPanel from "@/components/HotspotPanel";
 import DiffView from "@/components/DiffView";
 import FlameGraph from "@/components/FlameGraph";
 import LanguageMenu from "@/components/LanguageMenu";
+import GitHubImportModal from "@/components/GitHubImportModal";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
-// Analysis lenses shown in the secondary toolbar. "Complexity" is live; the rest
-// are roadmap placeholders (disabled, "soon") until they ship.
-const LENSES = [
-  { key: "complexity", label: "Complexity", live: true, title: "Big-O complexity + hotspots" },
-  { key: "runtime", label: "Runtime", live: false, title: "Measured runtime in a sandbox (real flame graph)" },
-  { key: "security", label: "Security", live: false, title: "Security & bug scan" },
-  { key: "memory", label: "Memory", live: false, title: "Space / memory analysis" },
+// Analysis lenses in the secondary toolbar. "complexity" is always live; the
+// rest are gated behind feature flags (disabled + "soon" until enabled).
+const LENSES: { mode: AnalysisMode; label: string; title: string; enabled: boolean }[] = [
+  { mode: "complexity", label: "Complexity", title: "Big-O complexity + hotspots", enabled: true },
+  { mode: "runtime", label: "Runtime", title: "Measured runtime in a sandbox (real flame graph)", enabled: FEATURES.lensRuntime },
+  { mode: "security", label: "Security", title: "Security & bug scan", enabled: FEATURES.lensSecurity },
+  { mode: "memory", label: "Memory", title: "Space / memory analysis", enabled: FEATURES.lensMemory },
 ];
+
+function downloadText(name: string, text: string) {
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 // One open document = one tab. Each carries its own code + analysis state, so
 // switching tabs preserves per-file results instead of clobbering them.
@@ -49,6 +62,8 @@ export default function Home() {
   const idRef = useRef(1);
   const [docs, setDocs] = useState<Doc[]>(() => [makeDoc("d0", "javascript", sampleFor("javascript"))]);
   const [activeId, setActiveId] = useState("d0");
+  const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
+  const [githubOpen, setGithubOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const active = docs.find((d) => d.id === activeId) ?? docs[0];
@@ -61,11 +76,37 @@ export default function Home() {
     const { id, code, language } = active;
     patchDoc(id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
     try {
-      const data = await requestAnalysis(code, language);
+      const data = await requestAnalysis(code, language, activeLens);
       patchDoc(id, { result: data, loading: false });
     } catch (e) {
       patchDoc(id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
     }
+  }
+
+  // Switch analysis lens. Results belong to the previous lens, so clear them.
+  function selectLens(mode: AnalysisMode) {
+    if (mode === activeLens) return;
+    setActiveLens(mode);
+    patchDoc(active.id, { result: null, error: null, activeIndex: null, diffIndex: null });
+  }
+
+  function handleExport() {
+    if (!active.result) return;
+    const md = analysisToMarkdown({ fileName: docName(active), language: active.language, result: active.result });
+    downloadText(`${docName(active)}.report.md`, md);
+  }
+
+  function importFromGitHub(f: { name: string; code: string; language: SupportedLanguage }) {
+    const existing = docs.find((d) => d.filename === f.name);
+    if (existing) {
+      patchDoc(existing.id, { code: f.code, language: f.language, result: null, error: null, activeIndex: null, diffIndex: null });
+      setActiveId(existing.id);
+    } else {
+      const id = `d${idRef.current++}`;
+      setDocs((ds) => [...ds, makeDoc(id, f.language, f.code, f.name)]);
+      setActiveId(id);
+    }
+    setGithubOpen(false);
   }
 
   // Accept a suggested fix: splice the new code in, then clear the now-stale
@@ -174,22 +215,29 @@ export default function Home() {
             Upload
           </button>
 
-          {/* Import from a GitHub repo — ships next; disabled with a "coming
-              soon" tag for now (mirrors the disabled diff button). */}
+          {/* Import from a GitHub repo — built behind FEATURES.githubImport;
+              disabled with a "coming soon" tag until the flag is on. */}
           <button
             type="button"
-            disabled
-            title="Coming soon"
-            aria-label="Link GitHub repo (coming soon)"
-            className="flex cursor-not-allowed items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-inkDim"
+            onClick={() => setGithubOpen(true)}
+            disabled={!FEATURES.githubImport}
+            title={FEATURES.githubImport ? "Import from a GitHub repo" : "Coming soon"}
+            aria-label={FEATURES.githubImport ? "Import from GitHub" : "Import from GitHub (coming soon)"}
+            className={`flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium transition-colors ${
+              FEATURES.githubImport
+                ? "text-inkMute hover:border-borderStrong hover:text-ink"
+                : "cursor-not-allowed text-inkDim"
+            }`}
           >
             <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
             </svg>
             GitHub repo
-            <span className="rounded-full border border-border bg-surfaceMax px-1.5 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-              coming soon
-            </span>
+            {!FEATURES.githubImport && (
+              <span className="rounded-full border border-border bg-surfaceMax px-1.5 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
+                coming soon
+              </span>
+            )}
           </button>
 
           <button
@@ -202,44 +250,62 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Analysis lenses — Complexity is live; the rest are coming soon. */}
+      {/* Analysis lenses — Complexity is live; flag-gated lenses show "soon". */}
       <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-border bg-surface/20 px-6 py-2">
         <div className="flex items-center gap-2">
           <span className="mr-1 font-mono text-2xs uppercase tracking-wider text-inkDim">Lens</span>
-          {LENSES.map((l) =>
-            l.live ? (
-              <span
-                key={l.key}
-                className="rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi"
-              >
-                {l.label}
-              </span>
-            ) : (
+          {LENSES.map((l) => {
+            const isActive = activeLens === l.mode;
+            if (!l.enabled) {
+              return (
+                <button
+                  key={l.mode}
+                  type="button"
+                  disabled
+                  title={`${l.title} — coming soon`}
+                  className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+                >
+                  {l.label}
+                  <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
+                    soon
+                  </span>
+                </button>
+              );
+            }
+            return (
               <button
-                key={l.key}
+                key={l.mode}
                 type="button"
-                disabled
-                title={`${l.title} — coming soon`}
-                className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+                onClick={() => selectLens(l.mode)}
+                title={l.title}
+                className={`rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors ${
+                  isActive
+                    ? "border-accentLine bg-accentSoft text-accentHi"
+                    : "border-border bg-surface text-inkMute hover:border-borderStrong hover:text-ink"
+                }`}
               >
                 {l.label}
-                <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-                  soon
-                </span>
               </button>
-            )
-          )}
+            );
+          })}
         </div>
         <button
           type="button"
-          disabled
-          title="Export / share report — coming soon"
-          className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+          onClick={handleExport}
+          disabled={!FEATURES.exportReport || !active.result}
+          title={FEATURES.exportReport ? "Export report (Markdown)" : "Export / share report — coming soon"}
+          className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
+            FEATURES.exportReport
+              ? "text-inkMute hover:border-borderStrong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+              : "cursor-not-allowed text-inkDim"
+          }`}
         >
           Export
-          <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-            soon
-          </span>
+          {!FEATURES.exportReport && (
+            <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
+              soon
+            </span>
+          )}
         </button>
       </div>
 
@@ -344,6 +410,10 @@ export default function Home() {
           />
         </aside>
       </div>
+
+      {githubOpen && FEATURES.githubImport && (
+        <GitHubImportModal onClose={() => setGithubOpen(false)} onLoaded={importFromGitHub} />
+      )}
     </main>
   );
 }

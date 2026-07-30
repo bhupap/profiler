@@ -1,7 +1,7 @@
 "use client";
 
 import type { AnalysisResult, Hotspot } from "@/lib/types";
-import { FEATURES } from "@/lib/features";
+import { useBeta } from "@/lib/beta";
 
 type Props = {
   result: AnalysisResult | null;
@@ -144,6 +144,7 @@ function HotspotRow({
   onViewFix: () => void;
 }) {
   const s = SEV[hs.severity];
+  const { beta } = useBeta();
   return (
     <li
       className={`overflow-hidden rounded-xl border transition-colors ${
@@ -193,7 +194,7 @@ function HotspotRow({
             )}
 
             {hs.suggestedCode &&
-              (FEATURES.suggestedFixes ? (
+              (beta ? (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onViewFix(); }}
@@ -203,8 +204,7 @@ function HotspotRow({
                   <span className="transition-transform group-hover:translate-x-0.5">→</span>
                 </button>
               ) : (
-                // Gated off (FEATURES.suggestedFixes) — disabled with a "coming
-                // soon" tag. Flip the flag to enable the real diff/accept flow.
+                // Locked until Beta is on — disabled with a "beta" tag.
                 <button
                   type="button"
                   disabled
@@ -213,7 +213,7 @@ function HotspotRow({
                 >
                   View suggested code
                   <span className="rounded-full border border-border bg-surfaceMax px-2 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-                    coming soon
+                    beta
                   </span>
                 </button>
               ))}

@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
 import { isSample, sampleFor } from "@/lib/samples";
 import { randomSnippet } from "@/lib/demoSnippets";
 import { langMeta } from "@/lib/languages";
-import { FEATURES } from "@/lib/features";
+import { useBeta } from "@/lib/beta";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
 import { analysisToMarkdown } from "@/lib/report";
@@ -16,16 +16,17 @@ import DiffView from "@/components/DiffView";
 import FlameGraph from "@/components/FlameGraph";
 import LanguageMenu from "@/components/LanguageMenu";
 import GitHubImportModal from "@/components/GitHubImportModal";
+import BetaToggle from "@/components/BetaToggle";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
-// Analysis lenses in the secondary toolbar. "complexity" is always live; the
-// rest are gated behind feature flags (disabled + "soon" until enabled).
-const LENSES: { mode: AnalysisMode; label: string; title: string; enabled: boolean }[] = [
-  { mode: "complexity", label: "Complexity", title: "Big-O complexity + hotspots", enabled: true },
-  { mode: "runtime", label: "Runtime", title: "Measured runtime in a sandbox (real flame graph)", enabled: FEATURES.lensRuntime },
-  { mode: "security", label: "Security", title: "Security & bug scan", enabled: FEATURES.lensSecurity },
-  { mode: "memory", label: "Memory", title: "Space / memory analysis", enabled: FEATURES.lensMemory },
+// Analysis lenses in the secondary toolbar. "complexity" is always live; lenses
+// flagged `beta` unlock when the Beta switch is on (else disabled + "beta").
+const LENSES: { mode: AnalysisMode; label: string; title: string; beta: boolean }[] = [
+  { mode: "complexity", label: "Complexity", title: "Big-O complexity + hotspots", beta: false },
+  { mode: "runtime", label: "Runtime", title: "Measured runtime in a sandbox (real flame graph)", beta: true },
+  { mode: "security", label: "Security", title: "Security & bug scan", beta: true },
+  { mode: "memory", label: "Memory", title: "Space / memory analysis", beta: true },
 ];
 
 function downloadText(name: string, text: string) {
@@ -65,8 +66,17 @@ export default function Home() {
   const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
   const [githubOpen, setGithubOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { beta } = useBeta();
 
   const active = docs.find((d) => d.id === activeId) ?? docs[0];
+
+  // Turning Beta off drops back to the Complexity lens (others are locked).
+  useEffect(() => {
+    if (!beta) {
+      setActiveLens("complexity");
+      setGithubOpen(false);
+    }
+  }, [beta]);
 
   const patchDoc = useCallback((id: string, patch: Partial<Doc>) => {
     setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
@@ -200,6 +210,8 @@ export default function Home() {
           <span className="hidden font-mono text-2xs uppercase tracking-wider text-inkDim sm:inline">
             complexity diagnostics
           </span>
+          <span className="ml-1 hidden h-4 w-px bg-border sm:inline-block" />
+          <BetaToggle />
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -215,16 +227,15 @@ export default function Home() {
             Upload
           </button>
 
-          {/* Import from a GitHub repo — built behind FEATURES.githubImport;
-              disabled with a "coming soon" tag until the flag is on. */}
+          {/* Import from a GitHub repo — unlocks with Beta; else disabled + "beta". */}
           <button
             type="button"
             onClick={() => setGithubOpen(true)}
-            disabled={!FEATURES.githubImport}
-            title={FEATURES.githubImport ? "Import from a GitHub repo" : "Coming soon"}
-            aria-label={FEATURES.githubImport ? "Import from GitHub" : "Import from GitHub (coming soon)"}
+            disabled={!beta}
+            title={beta ? "Import from a GitHub repo" : "Turn on Beta to use"}
+            aria-label={beta ? "Import from GitHub" : "Import from GitHub (beta)"}
             className={`flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium transition-colors ${
-              FEATURES.githubImport
+              beta
                 ? "text-inkMute hover:border-borderStrong hover:text-ink"
                 : "cursor-not-allowed text-inkDim"
             }`}
@@ -233,9 +244,9 @@ export default function Home() {
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
             </svg>
             GitHub repo
-            {!FEATURES.githubImport && (
+            {!beta && (
               <span className="rounded-full border border-border bg-surfaceMax px-1.5 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-                coming soon
+                beta
               </span>
             )}
           </button>
@@ -250,24 +261,25 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Analysis lenses — Complexity is live; flag-gated lenses show "soon". */}
+      {/* Analysis lenses — Complexity is live; beta lenses unlock with Beta. */}
       <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-border bg-surface/20 px-6 py-2">
         <div className="flex items-center gap-2">
           <span className="mr-1 font-mono text-2xs uppercase tracking-wider text-inkDim">Lens</span>
           {LENSES.map((l) => {
             const isActive = activeLens === l.mode;
-            if (!l.enabled) {
+            const locked = l.beta && !beta;
+            if (locked) {
               return (
                 <button
                   key={l.mode}
                   type="button"
                   disabled
-                  title={`${l.title} — coming soon`}
+                  title={`${l.title} — turn on Beta to use`}
                   className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
                 >
                   {l.label}
                   <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-                    soon
+                    beta
                   </span>
                 </button>
               );
@@ -292,18 +304,18 @@ export default function Home() {
         <button
           type="button"
           onClick={handleExport}
-          disabled={!FEATURES.exportReport || !active.result}
-          title={FEATURES.exportReport ? "Export report (Markdown)" : "Export / share report — coming soon"}
+          disabled={!beta || !active.result}
+          title={beta ? "Export report (Markdown)" : "Turn on Beta to use"}
           className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
-            FEATURES.exportReport
+            beta
               ? "text-inkMute hover:border-borderStrong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
               : "cursor-not-allowed text-inkDim"
           }`}
         >
           Export
-          {!FEATURES.exportReport && (
+          {!beta && (
             <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-              soon
+              beta
             </span>
           )}
         </button>
@@ -411,7 +423,7 @@ export default function Home() {
         </aside>
       </div>
 
-      {githubOpen && FEATURES.githubImport && (
+      {githubOpen && beta && (
         <GitHubImportModal onClose={() => setGithubOpen(false)} onLoaded={importFromGitHub} />
       )}
     </main>

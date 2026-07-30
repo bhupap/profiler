@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
 import { SAMPLES, isSample } from "@/lib/samples";
+import { randomSnippet } from "@/lib/demoSnippets";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
 import { applyFix } from "@/lib/applyFix";
@@ -117,9 +118,13 @@ export default function Home() {
     );
   }
 
-  function openBlankTab() {
+  function openRandomTab() {
+    // DEMO: a new tab loads a random demo snippet so there's always something to
+    // analyze. For the live product, make this a blank doc instead, e.g.:
+    //   setDocs((ds) => [...ds, makeDoc(id, active.language, "")]);
+    const snip = randomSnippet();
     const id = `d${idRef.current++}`;
-    setDocs((ds) => [...ds, makeDoc(id, active.language, SAMPLES[active.language])]);
+    setDocs((ds) => [...ds, makeDoc(id, snip.language, snip.code, snip.name)]);
     setActiveId(id);
   }
 
@@ -223,7 +228,7 @@ export default function Home() {
                 );
               })}
               <button
-                onClick={openBlankTab}
+                onClick={openRandomTab}
                 aria-label="New tab"
                 className="grid w-9 shrink-0 place-items-center border-r border-border text-inkDim transition-colors hover:bg-surface/60 hover:text-ink"
               >

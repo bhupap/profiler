@@ -13,6 +13,9 @@ then the graph one as the "wow").
 | `order-analytics.js` | JavaScript | e-commerce order analytics | N+1 `find` in `enrichOrders`; `filter`-per-customer in `topCustomersBySpend`; **O(n²)** pairwise `findSimilarCustomers`; `concat`+`sort`-in-loop in `categoryLeaderboard`; rescan window in `rollingWeeklyRevenue` |
 | `recommender.py` | Python | item-to-item recommendations | **O(n²)** pairwise `item_similarity` with vectors rebuilt in the inner loop; norms recomputed every `cosine` call; `in list` membership scans; **exponential** unmemoized recursion in `popularity_decay`; string `+=` in `render_report` |
 | `graph-routes.ts` | TypeScript | weighted-graph routing | Dijkstra with a **linear-scan** min-select (O(V²)) and array `visited`; adjacency rebuilt by scanning all edges each call; `allPairsCost` / `reachableWithin` rerun full searches per node |
+| `matrix-lab.js` | JavaScript | dense-matrix math | **O(n³)** `multiply` that also re-`transpose`s each call; `power` repeats the cubic multiply; `flatten`/`rowSums` grow arrays with `concat`; `contains` re-`slice`s + `includes` |
+| `log-insights.py` | Python | access-log rollups | `in list` membership in `unique_users`; sort-in-loop in `count_by_path`; rescan-per-path in `slowest_paths`; **O(n²)** `error_bursts`; string `+=` in `render_report` |
+| `inventory-sync.ts` | TypeScript | stock reconciliation | N+1 `find` lookups in `reconcile` / `valueByWarehouse`; **O(n²)** `duplicateSkus`; `concat`+`sort`-in-loop; `filter`-per-line in `unfulfillable` |
 
 ## Talking points
 

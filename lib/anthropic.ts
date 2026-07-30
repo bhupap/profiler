@@ -1,9 +1,10 @@
 /**
- * Minimal Anthropic client using the built-in `fetch`.
+ * Minimal Anthropic client using the built-in `fetch`, with streaming.
  *
- * This replaces the `@anthropic-ai/sdk` dependency. We only ever make one kind
- * of call (a single message completion), so a thin wrapper is all we need — one
- * fewer dependency to install and keep updated, identical behaviour.
+ * Replaces the `@anthropic-ai/sdk` dependency. We stream the completion (SSE)
+ * and accumulate the text, so long generations don't stall on a single-response
+ * timeout, and we read `stop_reason` from the stream to catch truncation.
+ * Callers still get the full concatenated text once the stream ends.
  */
 import {
   ANTHROPIC_API_URL,
@@ -14,10 +15,6 @@ import {
 
 type Message = { role: "user" | "assistant"; content: string };
 
-/**
- * Send a single completion request and return the concatenated text output.
- * Throws on any non-OK response so the caller can handle it uniformly.
- */
 export async function createCompletion(params: {
   apiKey: string;
   system: string;
@@ -30,17 +27,19 @@ export async function createCompletion(params: {
       "content-type": "application/json",
       "x-api-key": params.apiKey,
       "anthropic-version": ANTHROPIC_VERSION,
+      accept: "text/event-stream",
     },
     body: JSON.stringify({
       model: MODEL,
       max_tokens: params.maxTokens ?? ANTHROPIC_MAX_TOKENS,
       system: params.system,
       messages: params.messages,
+      stream: true,
     }),
   });
 
   if (!res.ok) {
-    // Surface the API's own error text where possible.
+    // Non-OK responses come back as JSON, not a stream — surface the message.
     let detail = `${res.status} ${res.statusText}`;
     try {
       const body = await res.json();
@@ -50,23 +49,56 @@ export async function createCompletion(params: {
     }
     throw new Error(detail);
   }
+  if (!res.body) throw new Error("No response body from the model stream");
 
-  const data = await res.json();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let stopReason: string | null = null;
 
-  // If the model ran into the output cap, the JSON is incomplete — fail with a
-  // clear, actionable message instead of a downstream "invalid JSON".
-  if (data.stop_reason === "max_tokens") {
+  // Parse the SSE stream line by line; we only care about `data:` payloads.
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let nl: number;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+
+      let evt: {
+        type?: string;
+        delta?: { type?: string; text?: string; stop_reason?: string };
+        error?: { message?: string };
+      };
+      try {
+        evt = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+
+      if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+        text += evt.delta.text ?? "";
+      } else if (evt.type === "message_delta" && evt.delta?.stop_reason) {
+        stopReason = evt.delta.stop_reason;
+      } else if (evt.type === "error") {
+        throw new Error(evt.error?.message ?? "Model stream error");
+      }
+    }
+  }
+
+  // Truncated before the JSON finished — fail with a clear, actionable message.
+  if (stopReason === "max_tokens") {
     throw new Error(
       "The model response was cut off before the JSON finished (hit the output token limit). Try a smaller file, or raise ANTHROPIC_MAX_TOKENS in lib/config.ts."
     );
   }
 
-  // The API returns content as an array of blocks; keep only text blocks.
-  const text: string = (data.content ?? [])
-    .filter((b: { type: string }) => b.type === "text")
-    .map((b: { text: string }) => b.text)
-    .join("")
-    .trim();
-
-  return text;
+  return text.trim();
 }

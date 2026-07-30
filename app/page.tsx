@@ -65,6 +65,7 @@ export default function Home() {
   const [activeId, setActiveId] = useState("d0");
   const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
   const [githubOpen, setGithubOpen] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { beta } = useBeta();
 
@@ -106,17 +107,52 @@ export default function Home() {
     downloadText(`${docName(active)}.report.md`, md);
   }
 
-  function importFromGitHub(f: { name: string; code: string; language: SupportedLanguage }) {
-    const existing = docs.find((d) => d.filename === f.name);
-    if (existing) {
-      patchDoc(existing.id, { code: f.code, language: f.language, result: null, error: null, activeIndex: null, diffIndex: null });
-      setActiveId(existing.id);
-    } else {
-      const id = `d${idRef.current++}`;
-      setDocs((ds) => [...ds, makeDoc(id, f.language, f.code, f.name)]);
-      setActiveId(id);
-    }
+  // Open one or many imported files as tabs (dedupe by name; refresh matches).
+  function importFromGitHub(files: { name: string; code: string; language: SupportedLanguage }[]) {
     setGithubOpen(false);
+    if (files.length === 0) return;
+    const byName = new Map(docs.map((d) => [d.filename, d.id] as const));
+    const updates = new Map<string, (typeof files)[number]>();
+    const additions: Doc[] = [];
+    let firstId: string | null = null;
+    for (const f of files) {
+      const exId = byName.get(f.name);
+      if (exId) {
+        updates.set(exId, f);
+        firstId ??= exId;
+      } else {
+        const id = `d${idRef.current++}`;
+        additions.push(makeDoc(id, f.language, f.code, f.name));
+        firstId ??= id;
+      }
+    }
+    setDocs((ds) =>
+      ds
+        .map((d) => {
+          const u = updates.get(d.id);
+          return u ? { ...d, code: u.code, language: u.language, result: null, loading: false, error: null, activeIndex: null, diffIndex: null } : d;
+        })
+        .concat(additions)
+    );
+    if (firstId) setActiveId(firstId);
+  }
+
+  // Whole-repo analysis: run the current lens across every open tab, in order.
+  async function analyzeAll() {
+    if (batchRunning) return;
+    setBatchRunning(true);
+    const targets = docs.map((d) => ({ id: d.id, code: d.code, language: d.language }));
+    for (const t of targets) {
+      if (!t.code.trim()) continue;
+      patchDoc(t.id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
+      try {
+        const data = await requestAnalysis(t.code, t.language, activeLens);
+        patchDoc(t.id, { result: data, loading: false });
+      } catch (e) {
+        patchDoc(t.id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
+      }
+    }
+    setBatchRunning(false);
   }
 
   // Accept a suggested fix: splice the new code in, then clear the now-stale
@@ -301,24 +337,37 @@ export default function Home() {
             );
           })}
         </div>
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={!beta || !active.result}
-          title={beta ? "Export report (Markdown)" : "Turn on Beta to use"}
-          className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
-            beta
-              ? "text-inkMute hover:border-borderStrong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
-              : "cursor-not-allowed text-inkDim"
-          }`}
-        >
-          Export
-          {!beta && (
-            <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-              beta
-            </span>
+        <div className="flex items-center gap-2">
+          {beta && docs.length > 1 && (
+            <button
+              type="button"
+              onClick={analyzeAll}
+              disabled={batchRunning}
+              title="Analyze every open tab with the current lens"
+              className="flex items-center gap-1.5 rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi transition-all hover:shadow-glow disabled:opacity-50"
+            >
+              {batchRunning ? "Analyzing all…" : `Analyze all ${docs.length}`}
+            </button>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={!beta || !active.result}
+            title={beta ? "Export report (Markdown)" : "Turn on Beta to use"}
+            className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
+              beta
+                ? "text-inkMute hover:border-borderStrong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                : "cursor-not-allowed text-inkDim"
+            }`}
+          >
+            Export
+            {!beta && (
+              <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
+                beta
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -424,7 +473,7 @@ export default function Home() {
       </div>
 
       {githubOpen && beta && (
-        <GitHubImportModal onClose={() => setGithubOpen(false)} onLoaded={importFromGitHub} />
+        <GitHubImportModal onClose={() => setGithubOpen(false)} onImport={importFromGitHub} />
       )}
     </main>
   );

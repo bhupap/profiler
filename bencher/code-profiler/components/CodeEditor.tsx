@@ -79,13 +79,15 @@ export default function CodeEditor({
         onMount={handleMount}
         options={{
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: 13,
+          fontSize: 14,
+          lineHeight: 22,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           renderLineHighlight: "none",
-          padding: { top: 12 },
+          padding: { top: 16, bottom: 16 },
           glyphMargin: true,
           smoothScrolling: true,
+          fontLigatures: true,
         }}
       />
     </div>

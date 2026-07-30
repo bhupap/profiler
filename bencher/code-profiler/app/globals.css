@@ -2,20 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { background: #0A0A0B; color: #EEEEEC; }
-body { font-feature-settings: "ss01", "cv11"; }
+:root { color-scheme: dark; }
 
-/* Monaco line-decoration overlays for hotspots */
-.hotspot-high  { background: rgba(229, 72, 77, 0.10); }
-.hotspot-med   { background: rgba(245, 165, 36, 0.10); }
-.hotspot-low   { background: rgba(148, 163, 184, 0.10); }
+html, body {
+  background: #0F1116;
+  color: #F5F6F8;
+}
 
-.hotspot-glyph-high  { background: #E5484D; width: 3px !important; margin-left: 4px; }
-.hotspot-glyph-med   { background: #F5A524; width: 3px !important; margin-left: 4px; }
-.hotspot-glyph-low   { background: #94A3B8; width: 3px !important; margin-left: 4px; }
+body {
+  font-feature-settings: "cv11", "ss01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
-/* Selection-active hotspot */
-.hotspot-active { background: rgba(124, 158, 255, 0.14); }
+/* Refined scrollbar for the hotspot panel */
+.custom-scroll::-webkit-scrollbar { width: 10px; }
+.custom-scroll::-webkit-scrollbar-track { background: transparent; }
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #2A2F3A;
+  border-radius: 8px;
+  border: 2px solid #171A21;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover { background: #3A404D; }
 
-/* Small utility */
-.hairline { border-color: #26262B; }
+/* Monaco line-decoration overlays — softer, less noisy */
+.hotspot-high { background: rgba(248, 113, 113, 0.08); }
+.hotspot-med  { background: rgba(251, 191, 36, 0.08); }
+.hotspot-low  { background: rgba(148, 163, 184, 0.08); }
+
+.hotspot-glyph-high { background: #F87171 !important; width: 3px !important; margin-left: 4px; border-radius: 2px; }
+.hotspot-glyph-med  { background: #FBBF24 !important; width: 3px !important; margin-left: 4px; border-radius: 2px; }
+.hotspot-glyph-low  { background: #94A3B8 !important; width: 3px !important; margin-left: 4px; border-radius: 2px; }
+
+.hotspot-active { background: rgba(124, 158, 255, 0.15); }
+
+/* Subtle in/out on cards */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 200ms ease-out both; }

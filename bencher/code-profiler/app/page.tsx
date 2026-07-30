@@ -2,198 +2,146 @@
 
 import { useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { AnalysisResult, SupportedLanguage } from "@/lib/types";
+import type { SupportedLanguage, Hotspot } from "@/lib/types";
+import { SAMPLES, isSample } from "@/lib/samples";
+import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
+import { useAnalysis } from "@/hooks/useAnalysis";
+import { applyFix } from "@/lib/applyFix";
 import HotspotPanel from "@/components/HotspotPanel";
+import DiffView from "@/components/DiffView";
+import FlameGraph from "@/components/FlameGraph";
 
-// Monaco has to load client-side only.
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
-
-const SAMPLES: Record<SupportedLanguage, string> = {
-  javascript: `// Find duplicate values in an array
-function findDuplicates(arr) {
-  const dupes = [];
-  for (let i = 0; i < arr.length; i++) {
-    for (let j = i + 1; j < arr.length; j++) {
-      if (arr[i] === arr[j] && !dupes.includes(arr[i])) {
-        dupes.push(arr[i]);
-      }
-    }
-  }
-  return dupes;
-}
-`,
-  typescript: `// Match users to their orders
-function attachOrders(users: {id: number}[], orders: {userId: number}[]) {
-  return users.map(u => ({
-    ...u,
-    orders: orders.filter(o => o.userId === u.id),
-  }));
-}
-`,
-  python: `# Find pairs that sum to target
-def find_pairs(nums, target):
-    result = []
-    for i in range(len(nums)):
-        for j in range(i + 1, len(nums)):
-            if nums[i] + nums[j] == target:
-                result.append((nums[i], nums[j]))
-    return result
-`,
-};
-
-// Map file extensions to Monaco language ids.
-const EXT_TO_LANG: Record<string, SupportedLanguage> = {
-  js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
-  ts: "typescript", tsx: "typescript",
-  py: "python",
-};
-
-const ACCEPT_ATTR = ".js,.jsx,.mjs,.cjs,.ts,.tsx,.py";
-// Mirror the API guardrail so we reject huge files client-side.
-const MAX_FILE_BYTES = 20_000;
 
 export default function Home() {
   const [language, setLanguage] = useState<SupportedLanguage>("javascript");
   const [code, setCode] = useState<string>(SAMPLES.javascript);
-  const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [filename, setFilename] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [diffIndex, setDiffIndex] = useState<number | null>(null); // which hotspot's diff is open
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  async function analyze() {
-    setLoading(true);
-    setError(null);
-    setResult(null);
+  const { result, loading, error, analyze, reset, setError } = useAnalysis();
+
+  function clearAnalysis() {
+    reset();
     setActiveIndex(null);
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Analysis failed");
-      setResult(data as AnalysisResult);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
+    setDiffIndex(null);
+  }
+
+  function handleAnalyze() {
+    clearAnalysis();
+    analyze(code, language);
+  }
+
+  // Accept a suggested fix: splice the new code into the editor, then clear the
+  // now-stale analysis so the user re-runs on the updated code.
+  function acceptFix(hotspot: Hotspot) {
+    if (!hotspot.suggestedCode) return;
+    setCode(applyFix(code, hotspot));
+    clearAnalysis();
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    // Reset the input so the same file can be re-selected later.
     e.target.value = "";
     if (!file) return;
-
     if (file.size > MAX_FILE_BYTES) {
-      setError(
-        `File is ${(file.size / 1024).toFixed(1)} KB. MVP limit is ${
-          MAX_FILE_BYTES / 1000
-        } KB. Multi-file / repo support ships next week.`
-      );
+      setError(`File is ${(file.size / 1024).toFixed(1)} KB. Limit is ${MAX_FILE_BYTES / 1000} KB.`);
       return;
     }
-
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     const detected = EXT_TO_LANG[ext];
     if (!detected) {
-      setError(`Unsupported extension .${ext}. Try .js, .ts, .tsx, or .py.`);
+      setError(`Unsupported extension .${ext}.`);
       return;
     }
-
-    const text = await file.text();
     setLanguage(detected);
-    setCode(text);
+    setCode(await file.text());
     setFilename(file.name);
-    setResult(null);
-    setActiveIndex(null);
-    setError(null);
+    clearAnalysis();
   }
 
   function handleLanguageChange(lang: SupportedLanguage) {
     setLanguage(lang);
-    // Load sample for that language if editor is empty or holds another sample.
-    if (Object.values(SAMPLES).includes(code) || !code.trim()) {
+    if (isSample(code) || !code.trim()) {
       setCode(SAMPLES[lang]);
       setFilename(null);
     }
-    setResult(null);
-    setActiveIndex(null);
+    clearAnalysis();
   }
 
+  const diffHotspot = diffIndex != null ? result?.hotspots[diffIndex] : null;
+
   return (
-    <main className="flex h-screen flex-col">
-      {/* Top bar */}
-      <header className="flex items-center justify-between border-b border-border px-5 py-3">
-        <div className="flex items-baseline gap-3">
-          <span className="font-mono text-sm tracking-wider text-ink">PROFILER</span>
-          <span className="text-[10px] uppercase tracking-widest text-mute">
-            complexity diagnostics
-          </span>
+    <main className="flex h-screen flex-col bg-canvas">
+      <header className="flex items-center justify-between border-b border-border bg-surface/60 backdrop-blur px-6 py-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-accent" />
+            <span className="font-mono text-sm tracking-wider text-ink">PROFILER</span>
+            <span className="ml-1 rounded bg-surfaceHi px-1.5 py-0.5 text-2xs text-inkMute">week 2</span>
+          </div>
           {filename && (
-            <span
-              className="ml-2 font-mono text-[11px] text-mute max-w-[220px] truncate"
-              title={filename}
-            >
-              — {filename}
-            </span>
+            <div className="flex items-center gap-2 rounded-md border border-border bg-surfaceHi px-2.5 py-1">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-inkMute" />
+              <span className="font-mono text-xs text-inkMute max-w-[240px] truncate" title={filename}>{filename}</span>
+            </div>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPT_ATTR}
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs text-ink transition-colors hover:bg-surfaceHi"
-          >
-            Upload file
-          </button>
-          <select
-            value={language}
-            onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
-            className="rounded-md border border-border bg-surface px-2 py-1.5 text-xs text-ink focus:outline-none focus:ring-1 focus:ring-accent"
-          >
+
+        <div className="flex items-center gap-2">
+          <input ref={fileInputRef} type="file" accept={FILE_ACCEPT_ATTR} onChange={handleFileUpload} className="hidden" />
+          <button onClick={() => fileInputRef.current?.click()} className="rounded-md border border-border bg-surface px-3.5 py-2 text-xs font-medium text-ink hover:bg-surfaceHi hover:border-borderStrong">Upload file</button>
+          <select value={language} onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)} className="rounded-md border border-border bg-surface px-3 py-2 text-xs font-medium text-ink focus:outline-none focus:ring-1 focus:ring-accent cursor-pointer hover:border-borderStrong">
             <option value="javascript">JavaScript</option>
             <option value="typescript">TypeScript</option>
             <option value="python">Python</option>
           </select>
-          <button
-            onClick={analyze}
-            disabled={loading || !code.trim()}
-            className="rounded-md bg-accent px-4 py-1.5 text-xs font-medium text-canvas transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
+          <button onClick={handleAnalyze} disabled={loading || !code.trim()} className="rounded-md bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
             {loading ? "Analyzing…" : "Analyze"}
           </button>
         </div>
       </header>
 
-      {/* Split view */}
       <div className="flex flex-1 overflow-hidden">
-        <section className="flex-1 border-r border-border">
-          <CodeEditor
-            value={code}
-            onChange={setCode}
-            language={language}
-            hotspots={result?.hotspots ?? []}
-            activeHotspotIndex={activeIndex}
-          />
+        <section className="flex flex-1 flex-col border-r border-border overflow-hidden">
+          <div className="flex-1 min-h-0">
+            <CodeEditor value={code} onChange={setCode} language={language} hotspots={result?.hotspots ?? []} activeHotspotIndex={activeIndex} />
+          </div>
+
+          {/* Diff drawer + flame graph live under the editor */}
+          {(diffHotspot?.suggestedCode || result?.flameGraph) && (
+            <div className="max-h-[45%] overflow-y-auto custom-scroll border-t border-border p-4 space-y-4">
+              {diffHotspot?.suggestedCode && (
+                <DiffView
+                  original={code.split("\n").slice(diffHotspot.startLine - 1, diffHotspot.endLine).join("\n")}
+                  suggested={diffHotspot.suggestedCode}
+                  onAccept={() => acceptFix(diffHotspot)}
+                  onClose={() => setDiffIndex(null)}
+                />
+              )}
+              {result?.flameGraph && result.flameGraph.length > 0 && !diffHotspot && (
+                <FlameGraph
+                  nodes={result.flameGraph}
+                  onSelect={(n) => {
+                    const idx = result.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
+                    if (idx >= 0) setActiveIndex(idx);
+                  }}
+                />
+              )}
+            </div>
+          )}
         </section>
-        <aside className="w-[380px] shrink-0">
+
+        <aside className="w-[440px] shrink-0 bg-canvas">
           <HotspotPanel
             result={result}
             loading={loading}
             error={error}
             activeIndex={activeIndex}
             onSelect={setActiveIndex}
+            onViewFix={(i) => setDiffIndex(i)}
           />
         </aside>
       </div>

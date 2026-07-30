@@ -1,76 +1,48 @@
-# Profiler — AI code complexity diagnostics
+# Profiler — Week 2
 
-MVP of an AI-powered code complexity and performance profiler. Paste code or upload a file, get:
+Builds on the MVP. New in week 2:
 
-- flagged **hotspots** with severity, explanation, and a fix suggestion
-- an **overall Big O** estimate with reasoning
-- an honest **undecidable-region** callout when static analysis hits the halting-problem wall
+- **Suggested fixes** — each hotspot can return improved, drop-in replacement code.
+- **Side-by-side diff** — see original vs. suggestion, then **Accept fix** to splice it into the editor.
+- **Static pre-pass** — a lightweight pattern detector runs *before* the LLM and feeds it hints, so results are grounded in real detected patterns (see `lib/staticAnalysis.ts`).
+- **Synthetic flame graph** — an *estimated* cost breakdown per block (clearly labeled; not measured runtime).
 
-**Input methods (MVP):** paste into the editor, or use **Upload file** for a single `.js` / `.jsx` / `.ts` / `.tsx` / `.py` file under 20 KB. Language auto-detects from the extension.
+## This is a scaffold to think against
 
-Built with Next.js 15 (App Router) + Monaco Editor + the Anthropic API.
+It runs, but it's intentionally rough so you can see the shape and refine requirements. Known simplifications, all flagged in code comments:
 
----
+- `staticAnalysis.ts` uses **regex/line heuristics**, not a real AST. The comments point to the proper approach (`@babel/parser` for JS/TS, tree-sitter for Python). Decide how far to take this.
+- `DiffView.tsx` is **dependency-free** and does no line-level alignment. A real version would use a diff library. Good enough to feel the feature.
+- The flame graph is an **estimate from the model**, not sampled stack frames — because we can't safely run arbitrary code server-side yet. Week 3's watchdog is the path to a *measured* version.
 
-## Run locally
+## Run (same as MVP)
 
 ```bash
-# 1. install deps
 npm install
-
-# 2. add your API key
-cp .env.local.example .env.local
-# edit .env.local and paste your key from https://console.anthropic.com/settings/keys
-
-# 3. start the dev server
+cp .env.local.example .env.local   # paste your ANTHROPIC_API_KEY
 npm run dev
 ```
 
-Open http://localhost:3000, pick a language, paste code, hit **Analyze**.
+Open localhost:3000 → Analyze → click a hotspot's **"View suggested code"** → **Accept fix**.
+
+## Questions this scaffold should help you answer
+
+- Should "accept fix" re-analyze automatically, or wait for a manual re-run? (Currently it clears the analysis and waits.)
+- Is a static regex pass worth it, or go straight to a real AST parser?
+- Does the flame graph earn its space, or is the ranked hotspot list enough?
+- How safe do the suggested rewrites need to be before you'd trust one-click accept?
 
 ---
 
-## Deploy to Vercel
+## Maintainability refactor (shared structure)
 
-1. Push this repo to GitHub.
-2. Import it at https://vercel.com/new.
-3. In **Project Settings → Environment Variables**, add:
-   - `ANTHROPIC_API_KEY` — your key
-4. Deploy. The API route runs on the Node runtime with a 30s max duration (set in `app/api/analyze/route.ts`).
+This codebase now shares the MVP's clean structure:
 
----
+- **`lib/config.ts`** — all constants (size limits, model, extensions, debounce) in one place.
+- **`lib/anthropic.ts`** — a small `fetch`-based API client; the `@anthropic-ai/sdk` dependency has been removed.
+- **`lib/parseAnalysis.ts`** — JSON recovery from the model reply.
+- **`lib/applyFix.ts`** — the "accept fix" line-splice, shared instead of duplicated.
+- **`lib/samples.ts`** — starter snippets + `isSample()`.
+- **`hooks/`** — state logic lives in hooks (`useAnalysis`, and in week 3 also `useWatchdog`), so `page.tsx` is UI only.
 
-## Project layout
-
-```
-app/
-  page.tsx              # Main UI: editor + hotspot panel
-  layout.tsx            # Root layout, loads globals.css
-  globals.css           # Tailwind + Monaco hotspot decoration classes
-  api/analyze/route.ts  # POST /api/analyze — calls Claude, returns JSON
-components/
-  CodeEditor.tsx        # Monaco wrapper with line-decoration overlays
-  HotspotPanel.tsx      # Right-side result list
-lib/
-  types.ts              # AnalysisResult / Hotspot shapes shared client + server
-  prompt.ts             # The system prompt (iterate on this to improve results)
-```
-
----
-
-## Where to iterate
-
-- **Prompt quality** lives entirely in `lib/prompt.ts` — most output improvements happen here.
-- **Model choice**: `app/api/analyze/route.ts` uses `claude-sonnet-5`. Swap to a bigger model for harder code, smaller/faster for cheaper runs.
-- **Design tokens**: `tailwind.config.ts` + `app/globals.css`.
-- **New languages**: add to `SupportedLanguage` in `lib/types.ts`, extend the `SAMPLES` map in `app/page.tsx`, and add to `SUPPORTED` in the API route.
-
----
-
-## Roadmap (weeks 2–3)
-
-- **Directory / GitHub ingestion**: `webkitdirectory` for local folders, plus a "paste a GitHub URL" flow that fetches the repo tree via the GitHub API and lets the user pick which files to include. Batch-analyze with a per-file summary + a project-level rollup.
-- **Static AST pass** in front of the LLM: parse JS/TS with `@babel/parser`, Python via a WASM parser (`tree-sitter`), pass detected patterns as structured context so the LLM validates rather than guesses.
-- **Synthetic flame graph**: estimated per-block cost rendered as a flame chart (Recharts/D3), clearly labeled *estimated* not *measured*.
-- **Refactor diff view**: second API call that returns a rewrite; render with `react-diff-viewer`.
-- **Algorithm library**: pattern → recommended data structure/algorithm cards.
+The behaviour is unchanged — this is purely a cleaner internal layout so features are easier to add next.

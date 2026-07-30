@@ -36,6 +36,8 @@ export type AnalysisResult = {
   flameGraph?: FlameNode[];
   // patterns the static AST pass detected, passed to the model as hints.
   detectedPatterns?: string[];
+  // set by the runtime lens — flameGraph holds MEASURED timings, not estimates.
+  measured?: boolean;
 };
 
 // Values are Monaco language ids so they can be passed straight to the editor.

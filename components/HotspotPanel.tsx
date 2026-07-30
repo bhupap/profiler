@@ -109,7 +109,11 @@ export default function HotspotPanel({
       {/* ── Hotspot accordion: the only scrolling region ──────────────── */}
       <div className="custom-scroll flex-1 overflow-y-auto">
         {total === 0 ? (
-          <EmptyState title="Clean run" body="No algorithmic issues worth flagging." />
+          result.measured ? (
+            <EmptyState title="Measured" body="See the cost-by-input-size chart under the editor." />
+          ) : (
+            <EmptyState title="Clean run" body="No algorithmic issues worth flagging." />
+          )
         ) : (
           <ul className="space-y-1.5 p-4">
             {result.hotspots.map((hs, i) => (

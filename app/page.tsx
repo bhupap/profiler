@@ -9,6 +9,7 @@ import { langMeta } from "@/lib/languages";
 import { useBeta } from "@/lib/beta";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
+import { measureRuntime } from "@/lib/runtimeSandbox";
 import { analysisToMarkdown } from "@/lib/report";
 import { applyFix } from "@/lib/applyFix";
 import HotspotPanel from "@/components/HotspotPanel";
@@ -83,11 +84,21 @@ export default function Home() {
     setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   }, []);
 
+  // One analysis for the current lens. Runtime runs in the client-side sandbox
+  // (JS only); every other lens goes to the server.
+  async function runOneAnalysis(code: string, language: SupportedLanguage) {
+    if (activeLens === "runtime") {
+      if (language !== "javascript") throw new Error("Measured runtime currently supports JavaScript.");
+      return measureRuntime(code);
+    }
+    return requestAnalysis(code, language, activeLens);
+  }
+
   async function handleAnalyze() {
     const { id, code, language } = active;
     patchDoc(id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
     try {
-      const data = await requestAnalysis(code, language, activeLens);
+      const data = await runOneAnalysis(code, language);
       patchDoc(id, { result: data, loading: false });
     } catch (e) {
       patchDoc(id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
@@ -146,7 +157,7 @@ export default function Home() {
       if (!t.code.trim()) continue;
       patchDoc(t.id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
       try {
-        const data = await requestAnalysis(t.code, t.language, activeLens);
+        const data = await runOneAnalysis(t.code, t.language);
         patchDoc(t.id, { result: data, loading: false });
       } catch (e) {
         patchDoc(t.id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
@@ -449,6 +460,7 @@ export default function Home() {
               {active.result?.flameGraph && active.result.flameGraph.length > 0 && !diffHotspot && (
                 <FlameGraph
                   nodes={active.result.flameGraph}
+                  measured={active.result.measured}
                   onSelect={(n) => {
                     const idx = active.result!.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
                     if (idx >= 0) patchDoc(active.id, { activeIndex: idx });

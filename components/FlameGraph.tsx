@@ -17,11 +17,13 @@ import type { FlameNode } from "@/lib/types";
 type Props = {
   nodes: FlameNode[];
   onSelect?: (node: FlameNode) => void;
+  // When true, bars are MEASURED wall-clock time (runtime lens), not estimates.
+  measured?: boolean;
 };
 
 const COLORS = ["#FB7185", "#FBBF24", "#5CD6E8", "#5DCAA5", "#8B93A3"];
 
-export default function FlameGraph({ nodes, onSelect }: Props) {
+export default function FlameGraph({ nodes, onSelect, measured }: Props) {
   if (!nodes || nodes.length === 0) return null;
 
   const sorted = [...nodes].sort((a, b) => b.weight - a.weight);
@@ -31,9 +33,11 @@ export default function FlameGraph({ nodes, onSelect }: Props) {
     <div className="fade-in rounded-xl border border-border bg-surface p-4">
       <div className="mb-1 flex items-center justify-between">
         <span className="font-mono text-2xs uppercase tracking-widest text-inkMute">
-          Estimated cost breakdown
+          {measured ? "Measured cost by input size" : "Estimated cost breakdown"}
         </span>
-        <span className="font-mono text-2xs italic text-inkDim">estimated · not measured runtime</span>
+        <span className="font-mono text-2xs italic text-inkDim">
+          {measured ? "measured in-browser · this machine" : "estimated · not measured runtime"}
+        </span>
       </div>
 
       {/* Bars are plain HTML so the labels render crisp — an SVG scaled to the
@@ -85,7 +89,9 @@ export default function FlameGraph({ nodes, onSelect }: Props) {
       </div>
 
       <div className="mt-3 text-2xs text-inkDim">
-        Wider bar = higher estimated cost. Click a bar to jump to that block.
+        {measured
+          ? "Wider bar = more wall-clock time at that input size."
+          : "Wider bar = higher estimated cost. Click a bar to jump to that block."}
       </div>
     </div>
   );

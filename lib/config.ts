@@ -41,4 +41,7 @@ export const FILE_ACCEPT_ATTR = Object.keys(EXT_TO_LANG)
 // Anthropic API endpoint + version (used instead of the SDK).
 export const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 export const ANTHROPIC_VERSION = "2023-06-01";
-export const ANTHROPIC_MAX_TOKENS = 3072;
+// Output cap. The analysis JSON carries a suggestedCode rewrite per hotspot plus
+// a flame graph, so a large/complex file needs real headroom — 3072 truncated
+// the reply mid-JSON on bigger inputs (e.g. examples/graph-routes.ts).
+export const ANTHROPIC_MAX_TOKENS = 8192;

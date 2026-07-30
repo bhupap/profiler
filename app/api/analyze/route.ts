@@ -7,7 +7,7 @@ import { MAX_CODE_LENGTH, SUPPORTED_LANGUAGES } from "@/lib/config";
 import type { AnalysisResult, SupportedLanguage } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 45; // suggestions + flame graph take longer
+export const maxDuration = 60; // suggestions + flame graph + larger token budget
 
 /**
  * POST /api/analyze

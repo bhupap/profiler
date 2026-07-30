@@ -52,6 +52,15 @@ export async function createCompletion(params: {
   }
 
   const data = await res.json();
+
+  // If the model ran into the output cap, the JSON is incomplete — fail with a
+  // clear, actionable message instead of a downstream "invalid JSON".
+  if (data.stop_reason === "max_tokens") {
+    throw new Error(
+      "The model response was cut off before the JSON finished (hit the output token limit). Try a smaller file, or raise ANTHROPIC_MAX_TOKENS in lib/config.ts."
+    );
+  }
+
   // The API returns content as an array of blocks; keep only text blocks.
   const text: string = (data.content ?? [])
     .filter((b: { type: string }) => b.type === "text")

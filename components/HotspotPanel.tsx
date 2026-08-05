@@ -209,7 +209,7 @@ function HotspotRow({
                   <span className="transition-transform group-hover:translate-x-0.5">→</span>
                 </button>
               ) : (
-                // Locked until Beta is on — disabled with a "beta" tag.
+                // Coming soon — disabled with a "soon" tag.
                 <button
                   type="button"
                   disabled
@@ -218,7 +218,7 @@ function HotspotRow({
                 >
                   View suggested code
                   <span className="rounded-full border border-border bg-surfaceMax px-2 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-                    beta
+                    soon
                   </span>
                 </button>
               ))}

@@ -17,7 +17,6 @@ import DiffView from "@/components/DiffView";
 import FlameGraph from "@/components/FlameGraph";
 import LanguageMenu from "@/components/LanguageMenu";
 import GitHubImportModal from "@/components/GitHubImportModal";
-import BetaToggle from "@/components/BetaToggle";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
@@ -257,8 +256,6 @@ export default function Home() {
           <span className="hidden font-mono text-2xs uppercase tracking-wider text-inkDim sm:inline">
             complexity diagnostics
           </span>
-          <span className="ml-1 hidden h-4 w-px bg-border sm:inline-block" />
-          <BetaToggle />
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -274,13 +271,13 @@ export default function Home() {
             Upload
           </button>
 
-          {/* Import from a GitHub repo — unlocks with Beta; else disabled + "beta". */}
+          {/* Import from a GitHub repo — coming soon; disabled + "soon" tag. */}
           <button
             type="button"
             onClick={() => setGithubOpen(true)}
             disabled={!beta}
-            title={beta ? "Import from a GitHub repo" : "Turn on Beta to use"}
-            aria-label={beta ? "Import from GitHub" : "Import from GitHub (beta)"}
+            title={beta ? "Import from a GitHub repo" : "Coming soon"}
+            aria-label={beta ? "Import from GitHub" : "Import from GitHub (soon)"}
             className={`flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium transition-colors ${
               beta
                 ? "text-inkMute hover:border-borderStrong hover:text-ink"
@@ -293,7 +290,7 @@ export default function Home() {
             GitHub repo
             {!beta && (
               <span className="rounded-full border border-border bg-surfaceMax px-1.5 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
-                beta
+                soon
               </span>
             )}
           </button>
@@ -321,12 +318,12 @@ export default function Home() {
                   key={l.mode}
                   type="button"
                   disabled
-                  title={`${l.title} — turn on Beta to use`}
+                  title={`${l.title} — coming soon`}
                   className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
                 >
                   {l.label}
                   <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-                    beta
+                    soon
                   </span>
                 </button>
               );
@@ -364,7 +361,7 @@ export default function Home() {
             type="button"
             onClick={handleExport}
             disabled={!beta || !active.result}
-            title={beta ? "Export report (Markdown)" : "Turn on Beta to use"}
+            title={beta ? "Export report (Markdown)" : "Coming soon"}
             className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
               beta
                 ? "text-inkMute hover:border-borderStrong hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
@@ -374,7 +371,7 @@ export default function Home() {
             Export
             {!beta && (
               <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
-                beta
+                soon
               </span>
             )}
           </button>

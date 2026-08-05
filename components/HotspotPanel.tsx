@@ -2,6 +2,7 @@
 
 import type { AnalysisResult, Hotspot } from "@/lib/types";
 import { useBeta } from "@/lib/beta";
+import { prettyComplexity } from "@/lib/format";
 
 type Props = {
   result: AnalysisResult | null;
@@ -42,11 +43,11 @@ export default function HotspotPanel({
         </div>
         <div className="mt-2 flex items-end gap-3">
           <span className="font-mono text-5xl font-medium leading-none text-ink [text-shadow:0_0_28px_rgba(92,214,232,0.18)]">
-            {result.overallComplexity}
+            {prettyComplexity(result.overallComplexity)}
           </span>
         </div>
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-inkMute">
-          {result.complexityReasoning}
+          {prettyComplexity(result.complexityReasoning)}
         </p>
 
         {total > 0 && (
@@ -164,7 +165,7 @@ function HotspotRow({
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
         <span className="font-mono text-2xs text-inkDim">HS-{String(index + 1).padStart(2, "0")}</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{hs.issue}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{prettyComplexity(hs.issue)}</span>
         <span className="shrink-0 font-mono text-2xs text-inkDim">
           L{hs.startLine}{hs.endLine !== hs.startLine ? `–${hs.endLine}` : ""}
         </span>
@@ -180,20 +181,20 @@ function HotspotRow({
               </span>
             </div>
 
-            <p className="text-sm leading-relaxed text-inkMute">{hs.explanation}</p>
+            <p className="text-sm leading-relaxed text-inkMute">{prettyComplexity(hs.explanation)}</p>
 
             <div className="rounded-lg border border-border bg-canvas p-3.5">
               <div className="mb-1.5 font-mono text-2xs uppercase tracking-wider text-inkDim">
                 Suggested fix
               </div>
-              <p className="text-sm leading-relaxed text-ink/90">{hs.suggestion}</p>
+              <p className="text-sm leading-relaxed text-ink/90">{prettyComplexity(hs.suggestion)}</p>
             </div>
 
             {hs.algorithm && (
               <div className="flex items-center gap-2 text-xs">
                 <span className="text-inkDim">Better fit</span>
                 <span className="text-inkDim">→</span>
-                <span className="font-mono text-accentHi">{hs.algorithm}</span>
+                <span className="font-mono text-accentHi">{prettyComplexity(hs.algorithm)}</span>
               </div>
             )}
 

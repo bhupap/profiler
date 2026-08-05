@@ -1,6 +1,7 @@
 "use client";
 
 import type { FlameNode } from "@/lib/types";
+import { prettyComplexity } from "@/lib/format";
 
 /**
  * Synthetic flame graph.
@@ -55,7 +56,7 @@ export default function FlameGraph({ nodes, onSelect, measured }: Props) {
               key={i}
               type="button"
               onClick={() => onSelect?.(node)}
-              title={`${node.label} · ${node.complexity}`}
+              title={`${node.label} · ${prettyComplexity(node.complexity)}`}
               className={`group block w-full rounded-md text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
                 onSelect ? "cursor-pointer" : "cursor-default"
               }`}
@@ -71,7 +72,7 @@ export default function FlameGraph({ nodes, onSelect, measured }: Props) {
                         {node.label}
                       </span>
                       <span className="ml-auto shrink-0 font-mono text-2xs font-medium text-canvas/70">
-                        {node.complexity}
+                        {prettyComplexity(node.complexity)}
                       </span>
                     </>
                   )}
@@ -79,7 +80,7 @@ export default function FlameGraph({ nodes, onSelect, measured }: Props) {
                 {!labelInside && (
                   <span className="truncate px-3 font-mono text-xs text-inkMute">
                     {node.label}
-                    <span className="text-inkDim"> · {node.complexity}</span>
+                    <span className="text-inkDim"> · {prettyComplexity(node.complexity)}</span>
                   </span>
                 )}
               </div>

@@ -66,6 +66,7 @@ export default function Home() {
   const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
   const [githubOpen, setGithubOpen] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [mobileView, setMobileView] = useState<"editor" | "results">("editor");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { beta } = useBeta();
 
@@ -96,6 +97,7 @@ export default function Home() {
   async function handleAnalyze() {
     const { id, code, language } = active;
     patchDoc(id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
+    setMobileView("results");
     try {
       const data = await runOneAnalysis(code, language);
       patchDoc(id, { result: data, loading: false });
@@ -247,9 +249,9 @@ export default function Home() {
   const lineCount = active.code ? active.code.split("\n").length : 0;
 
   return (
-    <main className="flex h-screen flex-col bg-canvas">
+    <main className="flex h-[100dvh] flex-col bg-canvas">
       {/* ── Command bar ───────────────────────────────────────────────── */}
-      <header className="relative z-30 flex shrink-0 items-center justify-between border-b border-border bg-surface/50 px-6 py-3.5 backdrop-blur">
+      <header className="relative z-30 flex shrink-0 items-center justify-between border-b border-border bg-surface/50 px-4 py-3 backdrop-blur sm:px-6 sm:py-3.5">
         <div className="flex items-center gap-3">
           <span className="h-2 w-2 animate-pulseDot rounded-full bg-accent shadow-[0_0_10px_#5CD6E8]" />
           <span className="font-display text-sm font-semibold tracking-wide text-ink">PROFILER</span>
@@ -258,7 +260,7 @@ export default function Home() {
           </span>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" accept={FILE_ACCEPT_ATTR} onChange={handleFileUpload} className="hidden" />
 
           {/* Language picker (affects the active tab) */}
@@ -271,14 +273,14 @@ export default function Home() {
             Upload
           </button>
 
-          {/* Import from a GitHub repo — coming soon; disabled + "soon" tag. */}
+          {/* GitHub import — hidden on mobile (coming soon anyway) */}
           <button
             type="button"
             onClick={() => setGithubOpen(true)}
             disabled={!beta}
             title={beta ? "Import from a GitHub repo" : "Coming soon"}
             aria-label={beta ? "Import from GitHub" : "Import from GitHub (soon)"}
-            className={`flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium transition-colors ${
+            className={`hidden items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium transition-colors sm:flex ${
               beta
                 ? "text-inkMute hover:border-borderStrong hover:text-ink"
                 : "cursor-not-allowed text-inkDim"
@@ -305,10 +307,10 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Analysis lenses — Complexity is live; beta lenses unlock with Beta. */}
-      <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-border bg-surface/20 px-6 py-2">
-        <div className="flex items-center gap-2">
-          <span className="mr-1 font-mono text-2xs uppercase tracking-wider text-inkDim">Lens</span>
+      {/* Analysis lenses — scrollable on mobile */}
+      <div className="relative z-20 flex shrink-0 items-center justify-between border-b border-border bg-surface/20 px-4 py-2 sm:px-6">
+        <div className="custom-scroll flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          <span className="mr-1 shrink-0 font-mono text-2xs uppercase tracking-wider text-inkDim">Lens</span>
           {LENSES.map((l) => {
             const isActive = activeLens === l.mode;
             const locked = l.beta && !beta;
@@ -319,7 +321,7 @@ export default function Home() {
                   type="button"
                   disabled
                   title={`${l.title} — coming soon`}
-                  className="flex cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
+                  className="flex shrink-0 cursor-not-allowed items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkDim"
                 >
                   {l.label}
                   <span className="rounded-full bg-surfaceMax px-1.5 text-[10px] uppercase tracking-wider text-inkMute">
@@ -334,7 +336,7 @@ export default function Home() {
                 type="button"
                 onClick={() => selectLens(l.mode)}
                 title={l.title}
-                className={`rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors ${
+                className={`shrink-0 rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors ${
                   isActive
                     ? "border-accentLine bg-accentSoft text-accentHi"
                     : "border-border bg-surface text-inkMute hover:border-borderStrong hover:text-ink"
@@ -345,7 +347,7 @@ export default function Home() {
             );
           })}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-2 flex shrink-0 items-center gap-2">
           {beta && docs.length > 1 && (
             <button
               type="button"
@@ -378,9 +380,9 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         {/* ── Editor console ──────────────────────────────────────────── */}
-        <section className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border">
+        <section className={`flex min-w-0 flex-1 flex-col overflow-hidden border-border md:border-r ${mobileView === "results" ? "hidden md:flex" : "flex"}`}>
           {/* Tab strip */}
           <div className="flex shrink-0 items-stretch border-b border-border bg-surface/30">
             <div className="custom-scroll flex min-w-0 flex-1 items-stretch overflow-x-auto">
@@ -469,7 +471,7 @@ export default function Home() {
         </section>
 
         {/* ── Diagnostics ─────────────────────────────────────────────── */}
-        <aside className="w-[500px] shrink-0 bg-canvas xl:w-[580px]">
+        <aside className={`bg-canvas md:w-[500px] md:shrink-0 md:xl:w-[580px] ${mobileView === "editor" ? "hidden md:block" : "flex flex-1 flex-col overflow-hidden md:block"}`}>
           <HotspotPanel
             result={active.result}
             loading={active.loading}
@@ -480,6 +482,45 @@ export default function Home() {
           />
         </aside>
       </div>
+
+      {/* ── Mobile bottom tab bar ────────────────────────────────────────── */}
+      <nav className="relative z-30 flex shrink-0 border-t border-border bg-surface/80 backdrop-blur md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileView("editor")}
+          className={`flex flex-1 flex-col items-center gap-0.5 px-4 py-2.5 text-2xs font-medium transition-colors ${
+            mobileView === "editor" ? "text-accentHi" : "text-inkMute"
+          }`}
+        >
+          {/* Code icon */}
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="6 7 2 10 6 13" />
+            <polyline points="14 7 18 10 14 13" />
+            <line x1="11" y1="4" x2="9" y2="16" />
+          </svg>
+          Editor
+          {mobileView === "editor" && <span className="absolute bottom-0 left-0 right-1/2 h-0.5 bg-accent" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileView("results")}
+          className={`flex flex-1 flex-col items-center gap-0.5 px-4 py-2.5 text-2xs font-medium transition-colors ${
+            mobileView === "results" ? "text-accentHi" : "text-inkMute"
+          }`}
+        >
+          {/* Chart/results icon */}
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="10" width="4" height="8" rx="1" />
+            <rect x="8" y="6" width="4" height="12" rx="1" />
+            <rect x="14" y="2" width="4" height="16" rx="1" />
+          </svg>
+          Results
+          {active.result && !active.loading && mobileView === "editor" && (
+            <span className="absolute right-[calc(50%-4px)] top-2 h-2 w-2 rounded-full bg-accent" />
+          )}
+          {mobileView === "results" && <span className="absolute bottom-0 left-1/2 right-0 h-0.5 bg-accent" />}
+        </button>
+      </nav>
 
       {githubOpen && beta && (
         <GitHubImportModal onClose={() => setGithubOpen(false)} onImport={importFromGitHub} />

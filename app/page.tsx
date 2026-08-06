@@ -276,6 +276,14 @@ export default function Home() {
     setBatchRunning(false);
   }
 
+  // Open the Review Queue on every open tab (not just fresh GitHub imports).
+  function openReviewForTabs() {
+    const files = docs
+      .map((d) => ({ name: docName(d), code: d.code, language: d.language }))
+      .filter((f) => f.code.trim());
+    if (files.length > 0) setReviewFiles(files);
+  }
+
   // Accept the CHOSEN fix: splice the selected option in, then clear the
   // now-stale analysis for this document so the user re-runs on updated code.
   // Accepting is a positive signal for the rule that flagged this hotspot.
@@ -491,13 +499,25 @@ export default function Home() {
           })}
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={openReviewForTabs}
+            disabled={!docs.some((d) => d.code.trim())}
+            title="Triage all open files in the review queue"
+            className="flex items-center gap-1.5 rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi transition-all hover:shadow-glow disabled:opacity-50"
+          >
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M4 5h12M4 10h12M4 15h7" />
+            </svg>
+            Review queue
+          </button>
           {beta && (
             <button
               type="button"
               onClick={runAllAgents}
               disabled={agentsRunning || !active.code.trim()}
               title="Run Complexity, Security & Memory agents in parallel"
-              className="flex items-center gap-1.5 rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi transition-all hover:shadow-glow disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkMute transition-all hover:border-borderStrong hover:text-ink disabled:opacity-50"
             >
               {agentsRunning ? "Running agents…" : "Run agents"}
             </button>

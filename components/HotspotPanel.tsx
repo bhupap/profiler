@@ -10,9 +10,12 @@ type Props = {
   loading: boolean;
   error: string | null;
   activeIndex: number | null;
+  hiddenCount: number; // hotspots hidden by "not useful" on this doc
   onSelect: (i: number | null) => void;
   // open the diff for a given hotspot
   onViewFix: (i: number) => void;
+  onDismiss: (i: number) => void; // "not useful" — hide + down-vote its rule
+  onResetHidden: () => void; // un-hide everything dismissed on this doc
 };
 
 const SEV: Record<Hotspot["severity"], { label: string; text: string; dot: string; seg: string }> = {
@@ -22,7 +25,7 @@ const SEV: Record<Hotspot["severity"], { label: string; text: string; dot: strin
 };
 
 export default function HotspotPanel({
-  result, loading, error, activeIndex, onSelect, onViewFix,
+  result, loading, error, activeIndex, hiddenCount, onSelect, onViewFix, onDismiss, onResetHidden,
 }: Props) {
   // Severity filter — each level toggles independently (mirrors the review-queue
   // chips). Lives here because only this panel cares about it.
@@ -133,7 +136,9 @@ export default function HotspotPanel({
       {/* ── Hotspot accordion: the only scrolling region ──────────────── */}
       <div className="custom-scroll flex-1 overflow-y-auto">
         {total === 0 ? (
-          result.measured ? (
+          hiddenCount > 0 ? (
+            <EmptyState title="All hidden" body="Every hotspot here is hidden by your feedback. Reset below to show them." />
+          ) : result.measured ? (
             <EmptyState title="Measured" body="See the cost-by-input-size chart under the editor." />
           ) : (
             <EmptyState title="Clean run" body="No algorithmic issues worth flagging." />
@@ -150,11 +155,22 @@ export default function HotspotPanel({
                 open={i === activeIndex}
                 onToggle={() => onSelect(i === activeIndex ? null : i)}
                 onViewFix={() => onViewFix(i)}
+                onDismiss={() => onDismiss(i)}
               />
             ))}
           </ul>
         )}
       </div>
+
+      {/* ── Feedback footer: what you've hidden, with an undo ──────────── */}
+      {hiddenCount > 0 && (
+        <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-2 text-2xs text-inkDim">
+          <span>{hiddenCount} hidden by your feedback</span>
+          <button onClick={onResetHidden} className="font-medium text-inkMute transition-colors hover:text-ink">
+            Reset
+          </button>
+        </div>
+      )}
 
       <style>{`
         .chev { width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .2s;display:inline-block }
@@ -165,13 +181,14 @@ export default function HotspotPanel({
 }
 
 function HotspotRow({
-  index, hs, open, onToggle, onViewFix,
+  index, hs, open, onToggle, onViewFix, onDismiss,
 }: {
   index: number;
   hs: Hotspot;
   open: boolean;
   onToggle: () => void;
   onViewFix: () => void;
+  onDismiss: () => void;
 }) {
   const s = SEV[hs.severity];
   const { beta } = useBeta();
@@ -263,6 +280,18 @@ function HotspotRow({
                   </span>
                 </button>
               ))}
+
+            {/* Feedback: hide this finding and down-weight its rule next time. */}
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+                title="Hide this and lower this rule's confidence next time"
+                className="text-2xs text-inkDim transition-colors hover:text-sev-med"
+              >
+                Not useful
+              </button>
+            </div>
           </div>
         </div>
       </div>

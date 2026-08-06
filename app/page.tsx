@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot, FixPriority } from "@/lib/types";
 import { isSample, sampleFor } from "@/lib/samples";
@@ -15,6 +15,7 @@ import { analysisToMarkdown } from "@/lib/report";
 import { applyFixOption } from "@/lib/applyFix";
 import { normalizeResult } from "@/lib/normalize";
 import { verifyHotspots } from "@/lib/verifyFix";
+import { loadFeedback, recordFeedback, ruleIdOf, ruleScore, adjustConfidence } from "@/lib/feedback";
 import HotspotPanel from "@/components/HotspotPanel";
 import FixChooser from "@/components/FixChooser";
 import FlameGraph from "@/components/FlameGraph";
@@ -61,20 +62,24 @@ type Doc = {
   activeIndex: number | null; // expanded/selected hotspot (of the active lens)
   diffIndex: number | null; // hotspot whose fix chooser is open
   selectedFixId: string | null; // chosen fix within the open chooser
+  dismissed: string[]; // hotspot keys hidden via "not useful" (session, per doc)
 };
 
 const docName = (d: Doc) => d.filename ?? `sample.${langMeta(d.language).exts[0]}`;
 
+// Stable-ish identity for a hotspot within one analysis (for dismiss tracking).
+const hotspotKey = (hs: Hotspot) => `${hs.startLine}:${hs.endLine}:${hs.issue}`;
+
 // Reset all analysis + view state — used whenever the code changes underneath it.
 const clearAnalysis = (): Partial<Doc> => ({
-  runs: {}, running: {}, errors: {}, activeIndex: null, diffIndex: null, selectedFixId: null,
+  runs: {}, running: {}, errors: {}, activeIndex: null, diffIndex: null, selectedFixId: null, dismissed: [],
 });
 
 function makeDoc(id: string, language: SupportedLanguage, code: string, filename: string | null = null): Doc {
   return {
     id, language, code, filename,
     runs: {}, running: {}, errors: {},
-    activeIndex: null, diffIndex: null, selectedFixId: null,
+    activeIndex: null, diffIndex: null, selectedFixId: null, dismissed: [],
   };
 }
 
@@ -97,6 +102,23 @@ export default function Home() {
   const activeLoading = !!active.running[activeLens];
   const activeError = active.errors[activeLens] ?? null;
   const agentsRunning = AGENT_MODES.some((m) => active.running[m]);
+
+  // Feedback loop: derive the SHOWN result from persisted rule feedback + this
+  // doc's dismissed set. Bumping the tick forces a recompute after a vote.
+  const [feedbackTick, setFeedbackTick] = useState(0);
+  const displayResult = useMemo<AnalysisResult | null>(() => {
+    if (!activeResult) return null;
+    const counts = loadFeedback();
+    const dismissed = new Set(active.dismissed);
+    const hotspots = activeResult.hotspots
+      .filter((hs) => !dismissed.has(hotspotKey(hs)))
+      .map((hs) => {
+        const score = ruleScore(counts, ruleIdOf(hs));
+        return score === 0 ? hs : { ...hs, confidence: adjustConfidence(hs.confidence ?? 80, score) };
+      });
+    return { ...activeResult, hotspots };
+  }, [activeResult, active.dismissed, feedbackTick]);
+  const hiddenCount = activeResult ? activeResult.hotspots.length - (displayResult?.hotspots.length ?? 0) : 0;
 
   // Turning Beta off drops back to the Complexity lens (others are locked).
   // GitHub import is NOT beta-gated, so it stays open.
@@ -181,7 +203,7 @@ export default function Home() {
   // selection to the new top pick for that priority.
   function changePriority(p: FixPriority) {
     setFixPriority(p);
-    const hs = active.diffIndex != null ? activeResult?.hotspots[active.diffIndex] : null;
+    const hs = active.diffIndex != null ? displayResult?.hotspots[active.diffIndex] : null;
     if (hs?.fixes) patchDoc(active.id, { selectedFixId: priorityPickId(hs.fixes, p) });
   }
 
@@ -234,13 +256,35 @@ export default function Home() {
 
   // Accept the CHOSEN fix: splice the selected option in, then clear the
   // now-stale analysis for this document so the user re-runs on updated code.
+  // Accepting is a positive signal for the rule that flagged this hotspot.
   function acceptChosenFix(hotspot: Hotspot) {
     const fix =
       hotspot.fixes?.find((f) => f.id === active.selectedFixId) ??
       hotspot.fixes?.find((f) => f.recommended) ??
       hotspot.fixes?.[0];
     if (!fix) return;
+    recordFeedback(ruleIdOf(hotspot), "up");
     patchDoc(active.id, { code: applyFixOption(active.code, hotspot, fix), ...clearAnalysis() });
+    setFeedbackTick((t) => t + 1);
+  }
+
+  // "Not useful": hide this hotspot for now and down-vote the rule that raised it,
+  // so that rule's future findings show lower confidence.
+  function dismissHotspot(index: number) {
+    const hs = displayResult?.hotspots[index];
+    if (!hs) return;
+    recordFeedback(ruleIdOf(hs), "down");
+    patchDoc(active.id, {
+      dismissed: [...active.dismissed, hotspotKey(hs)],
+      activeIndex: null, diffIndex: null, selectedFixId: null,
+    });
+    setFeedbackTick((t) => t + 1);
+  }
+
+  // Un-hide everything dismissed on this doc (the rule votes still stand).
+  function resetDismissed() {
+    patchDoc(active.id, { dismissed: [] });
+    setFeedbackTick((t) => t + 1);
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -310,7 +354,7 @@ export default function Home() {
     if (id === activeId) setActiveId(next[Math.min(idx, next.length - 1)].id);
   }
 
-  const diffHotspot = active.diffIndex != null ? activeResult?.hotspots[active.diffIndex] : null;
+  const diffHotspot = active.diffIndex != null ? displayResult?.hotspots[active.diffIndex] : null;
   const activeLang = langMeta(active.language);
   const lineCount = active.code ? active.code.split("\n").length : 0;
 
@@ -516,13 +560,13 @@ export default function Home() {
               value={active.code}
               onChange={(v) => patchDoc(active.id, { code: v })}
               language={active.language}
-              hotspots={activeResult?.hotspots ?? []}
+              hotspots={displayResult?.hotspots ?? []}
               activeHotspotIndex={active.activeIndex}
             />
           </div>
 
           {/* Fix chooser + flame graph live under the editor */}
-          {((diffHotspot?.fixes && diffHotspot.fixes.length > 0) || activeResult?.flameGraph) && (
+          {((diffHotspot?.fixes && diffHotspot.fixes.length > 0) || displayResult?.flameGraph) && (
             <div className="custom-scroll max-h-[46%] shrink-0 space-y-4 overflow-y-auto border-t border-border bg-surface/20 p-4">
               {diffHotspot?.fixes && diffHotspot.fixes.length > 0 && (
                 <FixChooser
@@ -536,13 +580,13 @@ export default function Home() {
                   onClose={() => patchDoc(active.id, { diffIndex: null })}
                 />
               )}
-              {activeResult?.flameGraph && activeResult.flameGraph.length > 0 &&
+              {displayResult?.flameGraph && displayResult.flameGraph.length > 0 &&
                 !(diffHotspot?.fixes && diffHotspot.fixes.length > 0) && (
                 <FlameGraph
-                  nodes={activeResult.flameGraph}
-                  measured={activeResult.measured}
+                  nodes={displayResult.flameGraph}
+                  measured={displayResult.measured}
                   onSelect={(n) => {
-                    const idx = activeResult.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
+                    const idx = displayResult.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
                     if (idx >= 0) patchDoc(active.id, { activeIndex: idx });
                   }}
                 />
@@ -554,13 +598,16 @@ export default function Home() {
         {/* ── Diagnostics ─────────────────────────────────────────────── */}
         <aside className={`bg-canvas md:w-[500px] md:shrink-0 md:xl:w-[580px] ${mobileView === "editor" ? "hidden md:block" : "flex flex-1 flex-col overflow-hidden md:block"}`}>
           <HotspotPanel
-            result={activeResult}
+            result={displayResult}
             loading={activeLoading}
             error={activeError}
             activeIndex={active.activeIndex}
+            hiddenCount={hiddenCount}
+            onResetHidden={resetDismissed}
             onSelect={(i) => patchDoc(active.id, { activeIndex: i })}
+            onDismiss={dismissHotspot}
             onViewFix={(i) => {
-              const hs = activeResult?.hotspots[i];
+              const hs = displayResult?.hotspots[i];
               patchDoc(active.id, { diffIndex: i, selectedFixId: hs?.fixes ? priorityPickId(hs.fixes, fixPriority) : null });
             }}
           />

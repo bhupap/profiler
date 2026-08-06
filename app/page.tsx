@@ -16,6 +16,7 @@ import { applyFixOption } from "@/lib/applyFix";
 import { normalizeResult } from "@/lib/normalize";
 import { verifyHotspots } from "@/lib/verifyFix";
 import { loadFeedback, recordFeedback, ruleIdOf, ruleScore, adjustConfidence } from "@/lib/feedback";
+import { findingSignature, suppressedFor, suppressFinding, clearFileMemory } from "@/lib/codebaseMemory";
 import HotspotPanel from "@/components/HotspotPanel";
 import FixChooser from "@/components/FixChooser";
 import FlameGraph from "@/components/FlameGraph";
@@ -67,9 +68,6 @@ type Doc = {
 
 const docName = (d: Doc) => d.filename ?? `sample.${langMeta(d.language).exts[0]}`;
 
-// Stable-ish identity for a hotspot within one analysis (for dismiss tracking).
-const hotspotKey = (hs: Hotspot) => `${hs.startLine}:${hs.endLine}:${hs.issue}`;
-
 // Reset all analysis + view state — used whenever the code changes underneath it.
 const clearAnalysis = (): Partial<Doc> => ({
   runs: {}, running: {}, errors: {}, activeIndex: null, diffIndex: null, selectedFixId: null, dismissed: [],
@@ -103,22 +101,29 @@ export default function Home() {
   const activeError = active.errors[activeLens] ?? null;
   const agentsRunning = AGENT_MODES.some((m) => active.running[m]);
 
-  // Feedback loop: derive the SHOWN result from persisted rule feedback + this
-  // doc's dismissed set. Bumping the tick forces a recompute after a vote.
+  // Codebase memory key: named files remember suppressions PER LENS; scratch
+  // buffers (samples/untitled) have no stable identity and are never remembered.
+  const fileKey = active.filename ? `${active.filename}::${activeLens}` : null;
+
+  // Feedback loop + codebase memory: derive the SHOWN result from persisted rule
+  // feedback, this doc's session dismissals, and this file's remembered
+  // suppressions. Bumping the tick forces a recompute after a vote / dismissal.
   const [feedbackTick, setFeedbackTick] = useState(0);
   const displayResult = useMemo<AnalysisResult | null>(() => {
     if (!activeResult) return null;
     const counts = loadFeedback();
-    const dismissed = new Set(active.dismissed);
+    const suppressed = new Set<string>([...active.dismissed, ...suppressedFor(fileKey)]);
     const hotspots = activeResult.hotspots
-      .filter((hs) => !dismissed.has(hotspotKey(hs)))
+      .filter((hs) => !suppressed.has(findingSignature(hs, active.code)))
       .map((hs) => {
         const score = ruleScore(counts, ruleIdOf(hs));
         return score === 0 ? hs : { ...hs, confidence: adjustConfidence(hs.confidence ?? 80, score) };
       });
     return { ...activeResult, hotspots };
-  }, [activeResult, active.dismissed, feedbackTick]);
+  }, [activeResult, active.dismissed, active.code, fileKey, feedbackTick]);
   const hiddenCount = activeResult ? activeResult.hotspots.length - (displayResult?.hotspots.length ?? 0) : 0;
+  // Some of what's hidden was remembered from a previous run of this file.
+  const hiddenRemembered = hiddenCount > 0 && suppressedFor(fileKey).length > 0;
 
   // Turning Beta off drops back to the Complexity lens (others are locked).
   // GitHub import is NOT beta-gated, so it stays open.
@@ -268,21 +273,25 @@ export default function Home() {
     setFeedbackTick((t) => t + 1);
   }
 
-  // "Not useful": hide this hotspot for now and down-vote the rule that raised it,
-  // so that rule's future findings show lower confidence.
+  // "Not useful": down-vote the rule (global), remember this specific finding for
+  // this file (persistent, named files only), and hide it now.
   function dismissHotspot(index: number) {
     const hs = displayResult?.hotspots[index];
     if (!hs) return;
+    const sig = findingSignature(hs, active.code);
     recordFeedback(ruleIdOf(hs), "down");
+    suppressFinding(fileKey, sig); // no-op for scratch buffers
     patchDoc(active.id, {
-      dismissed: [...active.dismissed, hotspotKey(hs)],
+      dismissed: [...active.dismissed, sig],
       activeIndex: null, diffIndex: null, selectedFixId: null,
     });
     setFeedbackTick((t) => t + 1);
   }
 
-  // Un-hide everything dismissed on this doc (the rule votes still stand).
+  // Un-hide everything on this doc: clear the session dismissals AND this file's
+  // remembered suppressions (the rule votes still stand).
   function resetDismissed() {
+    clearFileMemory(fileKey);
     patchDoc(active.id, { dismissed: [] });
     setFeedbackTick((t) => t + 1);
   }
@@ -603,6 +612,7 @@ export default function Home() {
             error={activeError}
             activeIndex={active.activeIndex}
             hiddenCount={hiddenCount}
+            hiddenRemembered={hiddenRemembered}
             onResetHidden={resetDismissed}
             onSelect={(i) => patchDoc(active.id, { activeIndex: i })}
             onDismiss={dismissHotspot}

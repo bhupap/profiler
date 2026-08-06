@@ -11,6 +11,7 @@ type Props = {
   error: string | null;
   activeIndex: number | null;
   hiddenCount: number; // hotspots hidden by "not useful" on this doc
+  hiddenRemembered?: boolean; // some hidden ones were remembered from a prior run
   onSelect: (i: number | null) => void;
   // open the diff for a given hotspot
   onViewFix: (i: number) => void;
@@ -25,7 +26,7 @@ const SEV: Record<Hotspot["severity"], { label: string; text: string; dot: strin
 };
 
 export default function HotspotPanel({
-  result, loading, error, activeIndex, hiddenCount, onSelect, onViewFix, onDismiss, onResetHidden,
+  result, loading, error, activeIndex, hiddenCount, hiddenRemembered, onSelect, onViewFix, onDismiss, onResetHidden,
 }: Props) {
   // Severity filter — each level toggles independently (mirrors the review-queue
   // chips). Lives here because only this panel cares about it.
@@ -165,7 +166,9 @@ export default function HotspotPanel({
       {/* ── Feedback footer: what you've hidden, with an undo ──────────── */}
       {hiddenCount > 0 && (
         <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-2 text-2xs text-inkDim">
-          <span>{hiddenCount} hidden by your feedback</span>
+          <span>
+            {hiddenCount} hidden{hiddenRemembered ? " · remembered for this file" : " by your feedback"}
+          </span>
           <button onClick={onResetHidden} className="font-medium text-inkMute transition-colors hover:text-ink">
             Reset
           </button>

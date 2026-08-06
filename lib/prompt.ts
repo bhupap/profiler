@@ -1,5 +1,10 @@
 import type { AnalysisMode, SupportedLanguage } from "./types";
 
+// Shared instruction for the `fixes` array, injected into every lens so the
+// multi-fix / trade-off behaviour is described in exactly one place.
+const FIXES_RULE =
+  'For "fixes": give 1-3 options ONLY when there are genuinely different valid approaches with real trade-offs (speed vs. memory vs. smallest change) — otherwise a single fix. Every "code" must be a correct, behaviour-preserving drop-in for lines startLine..endLine with matching indentation; omit a fix rather than produce something unsafe. Mark exactly one option "recommended", and keep "tradeoffs" chips to 1-3 short words each.';
+
 /**
  * System prompt.
  *
@@ -30,11 +35,19 @@ export function buildSystemPrompt(
       "startLine": <int, 1-indexed>,
       "endLine": <int, 1-indexed>,
       "severity": "high" | "medium" | "low",
+      "confidence": <int 0-100: how sure this is a real issue; 100 = certain>,
       "issue": "<5-8 word label>",
       "explanation": "<1-2 sentences on why it matters>",
       "suggestion": "<1-2 sentences on what to change>",
       "algorithm": "<optional: better approach or data structure>",
-      "suggestedCode": "<optional drop-in replacement for lines startLine..endLine; same behaviour, safer/faster; preserve indentation; omit if unsure>"
+      "fixes": [
+        {
+          "title": "<short label for this approach, e.g. 'Pre-sort outside the loop'>",
+          "code": "<drop-in replacement for lines startLine..endLine; same behaviour; preserve indentation>",
+          "tradeoffs": ["<short chips, e.g. 'O(n log n)', 'extra memory', 'smallest change'>"],
+          "recommended": <true on exactly one option>
+        }
+      ]
     }
   ],
   "flameGraph": [
@@ -51,7 +64,8 @@ ${shape}
 Focus:
 - Find SECURITY and CORRECTNESS problems: injection (SQL/command/path), unsafe eval/deserialization, missing input validation, authz/authn gaps, secrets in code, unsafe randomness, ReDoS, race conditions, resource leaks, off-by-one and null/undefined hazards.
 - "overallComplexity" = an overall risk headline: "Low risk" | "Medium risk" | "High risk".
-- severity reflects exploitability/impact. "suggestion" is the concrete remediation; "suggestedCode" is a safer drop-in when practical.
+- severity reflects exploitability/impact. "suggestion" is the concrete remediation; each "fixes" entry is a safer drop-in.
+- ${FIXES_RULE}
 - "flameGraph" may be an empty array for this lens.
 - Output JSON only.`;
   }
@@ -65,7 +79,8 @@ Focus:
 - Find MEMORY problems: unnecessary allocations, copies in loops, growing structures, retained references / leaks, unbounded caches/buffers, boxing, and high space complexity.
 - "overallComplexity" = the overall SPACE complexity, e.g. "O(n)" or "O(n^2) space".
 - "complexity" on each flameGraph node = that block's space cost tag.
-- "suggestion"/"suggestedCode" reduce allocations or space complexity.
+- Each "fixes" entry reduces allocations or space complexity.
+- ${FIXES_RULE}
 - Output JSON only.`;
   }
 
@@ -77,7 +92,7 @@ ${shape}
 Rules:
 - Focus on ALGORITHMIC problems: nested loops, O(n^2) work in a loop, N+1 access, unnecessary sorts, repeated recomputation, wrong data structure, missing memoization.
 - "overallComplexity" = overall time complexity "O(...)".
-- suggestedCode must be a correct drop-in replacement for the flagged lines — same behaviour, better complexity. Match indentation. Omit rather than produce something unsafe.
+- ${FIXES_RULE}
 - flameGraph: break the code into main functions/blocks with an ESTIMATED relative weight (static estimate, NOT measured runtime); worst hotspot has the highest weight.
 - Line numbers are 1-indexed. If complexity depends on undecidable properties, set overallComplexity "unknown" and explain in turingCaveat.
 - Output JSON only.`;

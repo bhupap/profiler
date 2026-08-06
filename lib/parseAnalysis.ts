@@ -1,15 +1,14 @@
-import type { AnalysisResult } from "./types";
-
 /**
- * Best-effort extraction of the analysis JSON from the model's text output.
+ * Best-effort extraction of the model's JSON from its text output.
  *
  * The model is asked to return raw JSON, but occasionally wraps it in ```json
  * fences or adds stray characters. We try the clean parse first, then fall back
  * to grabbing everything between the first `{` and the last `}`.
  *
- * Returns null if no valid JSON can be recovered.
+ * Returns the raw parsed object (untyped) — shape validation is `validateAnalysis`
+ * in lib/schema.ts. Returns null if no JSON at all can be recovered.
  */
-export function extractAnalysisJson(text: string): AnalysisResult | null {
+export function extractAnalysisJson(text: string): Record<string, unknown> | null {
   const cleaned = text
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "")
@@ -25,9 +24,10 @@ export function extractAnalysisJson(text: string): AnalysisResult | null {
   return tryParse(cleaned.slice(start, end + 1));
 }
 
-function tryParse(s: string): AnalysisResult | null {
+function tryParse(s: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(s) as AnalysisResult;
+    const v = JSON.parse(s);
+    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
   } catch {
     return null;
   }

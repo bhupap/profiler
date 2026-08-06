@@ -23,10 +23,24 @@ export function analysisToMarkdown(opts: {
   if (result.hotspots.length === 0) out.push("", "_None flagged._");
   result.hotspots.forEach((h, i) => {
     const range = `L${h.startLine}${h.endLine !== h.startLine ? `–${h.endLine}` : ""}`;
-    out.push("", `### ${i + 1}. ${pc(h.issue)}  \`${range}\` · ${h.severity}`);
+    const conf = typeof h.confidence === "number" ? ` · ${h.confidence}% confidence` : "";
+    out.push("", `### ${i + 1}. ${pc(h.issue)}  \`${range}\` · ${h.severity}${conf}`);
     out.push(pc(h.explanation), "", `**Fix:** ${pc(h.suggestion)}`);
     if (h.algorithm) out.push(`**Better fit:** ${pc(h.algorithm)}`);
-    if (h.suggestedCode) out.push("", "```" + language, h.suggestedCode, "```");
+
+    const fixes =
+      h.fixes && h.fixes.length > 0
+        ? h.fixes
+        : h.suggestedCode
+        ? [{ id: "", title: "Suggested rewrite", code: h.suggestedCode, source: "ai" as const }]
+        : [];
+    if (fixes.length > 1) out.push("", `_${fixes.length} fix options:_`);
+    fixes.forEach((f) => {
+      const src = f.source === "rule" ? " (rule)" : "";
+      const rec = f.recommended ? " ✓" : "";
+      const tags = f.tradeoffs && f.tradeoffs.length > 0 ? ` — _${f.tradeoffs.join(" · ")}_` : "";
+      out.push("", `**${f.title}**${rec}${src}${tags}`, "```" + language, f.code, "```");
+    });
   });
 
   if (result.flameGraph && result.flameGraph.length > 0) {

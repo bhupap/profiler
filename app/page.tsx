@@ -2,18 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot } from "@/lib/types";
+import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot, FixPriority } from "@/lib/types";
 import { isSample, sampleFor } from "@/lib/samples";
 import { randomSnippet } from "@/lib/demoSnippets";
 import { langMeta } from "@/lib/languages";
 import { useBeta } from "@/lib/beta";
 import { EXT_TO_LANG, FILE_ACCEPT_ATTR, MAX_FILE_BYTES } from "@/lib/config";
 import { requestAnalysis } from "@/lib/analyzeClient";
+import { priorityPickId } from "@/lib/fixPriority";
 import { measureRuntime } from "@/lib/runtimeSandbox";
 import { analysisToMarkdown } from "@/lib/report";
-import { applyFix } from "@/lib/applyFix";
+import { applyFixOption } from "@/lib/applyFix";
+import { normalizeResult } from "@/lib/normalize";
 import HotspotPanel from "@/components/HotspotPanel";
-import DiffView from "@/components/DiffView";
+import FixChooser from "@/components/FixChooser";
 import FlameGraph from "@/components/FlameGraph";
 import LanguageMenu from "@/components/LanguageMenu";
 import GitHubImportModal from "@/components/GitHubImportModal";
@@ -29,6 +31,10 @@ const LENSES: { mode: AnalysisMode; label: string; title: string; beta: boolean 
   { mode: "memory", label: "Memory", title: "Space / memory analysis", beta: true },
 ];
 
+// The lenses that run as parallel AI "agents" on one click (Runtime is the
+// client sandbox, handled separately; it isn't part of the agent fan-out).
+const AGENT_MODES: AnalysisMode[] = ["complexity", "security", "memory"];
+
 function downloadText(name: string, text: string) {
   const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -39,24 +45,36 @@ function downloadText(name: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
-// One open document = one tab. Each carries its own code + analysis state, so
-// switching tabs preserves per-file results instead of clobbering them.
+type LensMap<T> = Partial<Record<AnalysisMode, T>>;
+
+// One open document = one tab. Analysis is cached PER LENS, so the parallel
+// agents each fill their own slot and switching lenses is instant (no refetch).
 type Doc = {
   id: string;
   language: SupportedLanguage;
   code: string;
   filename: string | null; // set when opened from an upload
-  result: AnalysisResult | null;
-  loading: boolean;
-  error: string | null;
-  activeIndex: number | null; // expanded/selected hotspot
-  diffIndex: number | null; // hotspot whose diff drawer is open
+  runs: LensMap<AnalysisResult>; // result per lens
+  running: LensMap<boolean>; // in-flight per lens
+  errors: LensMap<string>; // error per lens
+  activeIndex: number | null; // expanded/selected hotspot (of the active lens)
+  diffIndex: number | null; // hotspot whose fix chooser is open
+  selectedFixId: string | null; // chosen fix within the open chooser
 };
 
 const docName = (d: Doc) => d.filename ?? `sample.${langMeta(d.language).exts[0]}`;
 
+// Reset all analysis + view state — used whenever the code changes underneath it.
+const clearAnalysis = (): Partial<Doc> => ({
+  runs: {}, running: {}, errors: {}, activeIndex: null, diffIndex: null, selectedFixId: null,
+});
+
 function makeDoc(id: string, language: SupportedLanguage, code: string, filename: string | null = null): Doc {
-  return { id, language, code, filename, result: null, loading: false, error: null, activeIndex: null, diffIndex: null };
+  return {
+    id, language, code, filename,
+    runs: {}, running: {}, errors: {},
+    activeIndex: null, diffIndex: null, selectedFixId: null,
+  };
 }
 
 export default function Home() {
@@ -64,6 +82,7 @@ export default function Home() {
   const [docs, setDocs] = useState<Doc[]>(() => [makeDoc("d0", "javascript", sampleFor("javascript"))]);
   const [activeId, setActiveId] = useState("d0");
   const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
+  const [fixPriority, setFixPriority] = useState<FixPriority>("balanced");
   const [githubOpen, setGithubOpen] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [mobileView, setMobileView] = useState<"editor" | "results">("editor");
@@ -71,6 +90,12 @@ export default function Home() {
   const { beta } = useBeta();
 
   const active = docs.find((d) => d.id === activeId) ?? docs[0];
+
+  // Everything the UI shows is the ACTIVE lens's slice of the doc.
+  const activeResult = active.runs[activeLens] ?? null;
+  const activeLoading = !!active.running[activeLens];
+  const activeError = active.errors[activeLens] ?? null;
+  const agentsRunning = AGENT_MODES.some((m) => active.running[m]);
 
   // Turning Beta off drops back to the Complexity lens (others are locked).
   useEffect(() => {
@@ -84,38 +109,84 @@ export default function Home() {
     setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, ...patch } : d)));
   }, []);
 
-  // One analysis for the current lens. Runtime runs in the client-side sandbox
-  // (JS only); every other lens goes to the server.
-  async function runOneAnalysis(code: string, language: SupportedLanguage) {
-    if (activeLens === "runtime") {
-      if (language !== "javascript") throw new Error("Measured runtime currently supports JavaScript.");
-      return measureRuntime(code);
-    }
-    return requestAnalysis(code, language, activeLens);
-  }
+  // Immutably update one lens slot on one doc.
+  const patchLens = useCallback(
+    (id: string, mode: AnalysisMode, patch: { result?: AnalysisResult; running?: boolean; error?: string | null }) => {
+      setDocs((ds) =>
+        ds.map((d) => {
+          if (d.id !== id) return d;
+          const next: Doc = { ...d };
+          if (patch.result !== undefined) next.runs = { ...d.runs, [mode]: patch.result };
+          if (patch.running !== undefined) next.running = { ...d.running, [mode]: patch.running };
+          if (patch.error !== undefined) next.errors = { ...d.errors, [mode]: patch.error ?? undefined };
+          return next;
+        })
+      );
+    },
+    []
+  );
 
+  // Run ONE lens for a doc. Runtime uses the client sandbox (JS only); the rest
+  // go to the server. Fills that lens's slot; independent of other lenses.
+  const runLens = useCallback(
+    async (id: string, mode: AnalysisMode, code: string, language: SupportedLanguage, priority: FixPriority) => {
+      patchLens(id, mode, { running: true, error: null });
+      try {
+        let data: AnalysisResult;
+        if (mode === "runtime") {
+          if (language !== "javascript") throw new Error("Measured runtime currently supports JavaScript.");
+          // The server path is already normalized; the client sandbox isn't.
+          data = normalizeResult(await measureRuntime(code));
+        } else {
+          data = await requestAnalysis(code, language, mode, priority);
+        }
+        patchLens(id, mode, { result: data, running: false });
+      } catch (e) {
+        patchLens(id, mode, { error: e instanceof Error ? e.message : "Unknown error", running: false });
+      }
+    },
+    [patchLens]
+  );
+
+  // Analyze the ACTIVE lens only (fast, single request).
   async function handleAnalyze() {
     const { id, code, language } = active;
-    patchDoc(id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
+    if (!code.trim()) return;
+    patchDoc(id, { activeIndex: null, diffIndex: null, selectedFixId: null });
     setMobileView("results");
-    try {
-      const data = await runOneAnalysis(code, language);
-      patchDoc(id, { result: data, loading: false });
-    } catch (e) {
-      patchDoc(id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
-    }
+    await runLens(id, activeLens, code, language, fixPriority);
   }
 
-  // Switch analysis lens. Results belong to the previous lens, so clear them.
+  // Fan out Complexity + Security + Memory agents IN PARALLEL — total time is
+  // the slowest agent, not the sum. Each fills its lens slot as it resolves.
+  async function runAllAgents() {
+    const { id, code, language } = active;
+    if (!code.trim()) return;
+    const modes = AGENT_MODES.filter((m) => m === "complexity" || beta);
+    patchDoc(id, { activeIndex: null, diffIndex: null, selectedFixId: null });
+    setMobileView("results");
+    await Promise.all(modes.map((m) => runLens(id, m, code, language, fixPriority)));
+  }
+
+  // Switch lens — results are cached per lens, so this is instant. Only the
+  // view state (which hotspot is open) is lens-specific and gets reset.
   function selectLens(mode: AnalysisMode) {
     if (mode === activeLens) return;
     setActiveLens(mode);
-    patchDoc(active.id, { result: null, error: null, activeIndex: null, diffIndex: null });
+    patchDoc(active.id, { activeIndex: null, diffIndex: null, selectedFixId: null });
+  }
+
+  // Change the fix priority — re-ranks live. If a chooser is open, move the
+  // selection to the new top pick for that priority.
+  function changePriority(p: FixPriority) {
+    setFixPriority(p);
+    const hs = active.diffIndex != null ? activeResult?.hotspots[active.diffIndex] : null;
+    if (hs?.fixes) patchDoc(active.id, { selectedFixId: priorityPickId(hs.fixes, p) });
   }
 
   function handleExport() {
-    if (!active.result) return;
-    const md = analysisToMarkdown({ fileName: docName(active), language: active.language, result: active.result });
+    if (!activeResult) return;
+    const md = analysisToMarkdown({ fileName: docName(active), language: active.language, result: activeResult });
     downloadText(`${docName(active)}.report.md`, md);
   }
 
@@ -142,7 +213,7 @@ export default function Home() {
       ds
         .map((d) => {
           const u = updates.get(d.id);
-          return u ? { ...d, code: u.code, language: u.language, result: null, loading: false, error: null, activeIndex: null, diffIndex: null } : d;
+          return u ? { ...d, code: u.code, language: u.language, ...clearAnalysis() } : d;
         })
         .concat(additions)
     );
@@ -153,28 +224,22 @@ export default function Home() {
   async function analyzeAll() {
     if (batchRunning) return;
     setBatchRunning(true);
-    const targets = docs.map((d) => ({ id: d.id, code: d.code, language: d.language }));
-    for (const t of targets) {
-      if (!t.code.trim()) continue;
-      patchDoc(t.id, { loading: true, error: null, result: null, activeIndex: null, diffIndex: null });
-      try {
-        const data = await runOneAnalysis(t.code, t.language);
-        patchDoc(t.id, { result: data, loading: false });
-      } catch (e) {
-        patchDoc(t.id, { error: e instanceof Error ? e.message : "Unknown error", loading: false });
-      }
+    for (const d of docs) {
+      if (!d.code.trim()) continue;
+      await runLens(d.id, activeLens, d.code, d.language, fixPriority);
     }
     setBatchRunning(false);
   }
 
-  // Accept a suggested fix: splice the new code in, then clear the now-stale
-  // analysis for this document so the user re-runs on the updated code.
-  function acceptFix(hotspot: Hotspot) {
-    if (!hotspot.suggestedCode) return;
-    patchDoc(active.id, {
-      code: applyFix(active.code, hotspot),
-      result: null, error: null, activeIndex: null, diffIndex: null,
-    });
+  // Accept the CHOSEN fix: splice the selected option in, then clear the
+  // now-stale analysis for this document so the user re-runs on updated code.
+  function acceptChosenFix(hotspot: Hotspot) {
+    const fix =
+      hotspot.fixes?.find((f) => f.id === active.selectedFixId) ??
+      hotspot.fixes?.find((f) => f.recommended) ??
+      hotspot.fixes?.[0];
+    if (!fix) return;
+    patchDoc(active.id, { code: applyFixOption(active.code, hotspot, fix), ...clearAnalysis() });
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -182,13 +247,13 @@ export default function Home() {
     e.target.value = "";
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      patchDoc(active.id, { error: `File is ${(file.size / 1024).toFixed(1)} KB. Limit is ${MAX_FILE_BYTES / 1000} KB.` });
+      patchLens(active.id, activeLens, { error: `File is ${(file.size / 1024).toFixed(1)} KB. Limit is ${MAX_FILE_BYTES / 1000} KB.` });
       return;
     }
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     const detected = EXT_TO_LANG[ext];
     if (!detected) {
-      patchDoc(active.id, { error: `Unsupported extension .${ext}.` });
+      patchLens(active.id, activeLens, { error: `Unsupported extension .${ext}.` });
       return;
     }
     const text = await file.text();
@@ -196,7 +261,7 @@ export default function Home() {
     // Re-uploading the same filename refreshes that tab instead of duplicating.
     const existing = docs.find((d) => d.filename === file.name);
     if (existing) {
-      patchDoc(existing.id, { code: text, language: detected, result: null, error: null, activeIndex: null, diffIndex: null });
+      patchDoc(existing.id, { code: text, language: detected, ...clearAnalysis() });
       setActiveId(existing.id);
       return;
     }
@@ -215,7 +280,7 @@ export default function Home() {
           language: lang,
           code: swap ? sampleFor(lang) : d.code,
           filename: swap ? null : d.filename,
-          result: null, error: null, activeIndex: null, diffIndex: null,
+          ...clearAnalysis(),
         };
       })
     );
@@ -244,7 +309,7 @@ export default function Home() {
     if (id === activeId) setActiveId(next[Math.min(idx, next.length - 1)].id);
   }
 
-  const diffHotspot = active.diffIndex != null ? active.result?.hotspots[active.diffIndex] : null;
+  const diffHotspot = active.diffIndex != null ? activeResult?.hotspots[active.diffIndex] : null;
   const activeLang = langMeta(active.language);
   const lineCount = active.code ? active.code.split("\n").length : 0;
 
@@ -299,10 +364,10 @@ export default function Home() {
 
           <button
             onClick={handleAnalyze}
-            disabled={active.loading || !active.code.trim()}
+            disabled={activeLoading || !active.code.trim()}
             className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-canvas transition-all hover:bg-accentHi hover:shadow-glow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-accent disabled:hover:shadow-none"
           >
-            {active.loading ? "Analyzing…" : "Analyze"}
+            {activeLoading ? "Analyzing…" : "Analyze"}
           </button>
         </div>
       </header>
@@ -330,31 +395,51 @@ export default function Home() {
                 </button>
               );
             }
+            const running = !!active.running[l.mode];
+            const lensResult = active.runs[l.mode];
             return (
               <button
                 key={l.mode}
                 type="button"
                 onClick={() => selectLens(l.mode)}
                 title={l.title}
-                className={`shrink-0 rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors ${
+                className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-2xs font-medium transition-colors ${
                   isActive
                     ? "border-accentLine bg-accentSoft text-accentHi"
                     : "border-border bg-surface text-inkMute hover:border-borderStrong hover:text-ink"
                 }`}
               >
                 {l.label}
+                {running ? (
+                  <span className="h-1.5 w-1.5 animate-pulseDot rounded-full bg-accent" aria-label="running" />
+                ) : lensResult ? (
+                  <span className="rounded-full bg-surfaceMax px-1 font-mono text-[10px] text-inkMute">
+                    {lensResult.hotspots.length}
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
         <div className="ml-2 flex shrink-0 items-center gap-2">
+          {beta && (
+            <button
+              type="button"
+              onClick={runAllAgents}
+              disabled={agentsRunning || !active.code.trim()}
+              title="Run Complexity, Security & Memory agents in parallel"
+              className="flex items-center gap-1.5 rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi transition-all hover:shadow-glow disabled:opacity-50"
+            >
+              {agentsRunning ? "Running agents…" : "Run agents"}
+            </button>
+          )}
           {beta && docs.length > 1 && (
             <button
               type="button"
               onClick={analyzeAll}
               disabled={batchRunning}
               title="Analyze every open tab with the current lens"
-              className="flex items-center gap-1.5 rounded-md border border-accentLine bg-accentSoft px-2.5 py-1 text-2xs font-medium text-accentHi transition-all hover:shadow-glow disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium text-inkMute transition-all hover:border-borderStrong hover:text-ink disabled:opacity-50"
             >
               {batchRunning ? "Analyzing all…" : `Analyze all ${docs.length}`}
             </button>
@@ -362,7 +447,7 @@ export default function Home() {
           <button
             type="button"
             onClick={handleExport}
-            disabled={!beta || !active.result}
+            disabled={!beta || !activeResult}
             title={beta ? "Export report (Markdown)" : "Coming soon"}
             className={`flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-2xs font-medium transition-colors ${
               beta
@@ -440,28 +525,33 @@ export default function Home() {
               value={active.code}
               onChange={(v) => patchDoc(active.id, { code: v })}
               language={active.language}
-              hotspots={active.result?.hotspots ?? []}
+              hotspots={activeResult?.hotspots ?? []}
               activeHotspotIndex={active.activeIndex}
             />
           </div>
 
-          {/* Diff drawer + flame graph live under the editor */}
-          {(diffHotspot?.suggestedCode || active.result?.flameGraph) && (
+          {/* Fix chooser + flame graph live under the editor */}
+          {((diffHotspot?.fixes && diffHotspot.fixes.length > 0) || activeResult?.flameGraph) && (
             <div className="custom-scroll max-h-[46%] shrink-0 space-y-4 overflow-y-auto border-t border-border bg-surface/20 p-4">
-              {diffHotspot?.suggestedCode && (
-                <DiffView
+              {diffHotspot?.fixes && diffHotspot.fixes.length > 0 && (
+                <FixChooser
                   original={active.code.split("\n").slice(diffHotspot.startLine - 1, diffHotspot.endLine).join("\n")}
-                  suggested={diffHotspot.suggestedCode}
-                  onAccept={() => acceptFix(diffHotspot)}
+                  fixes={diffHotspot.fixes}
+                  selectedId={active.selectedFixId}
+                  priority={fixPriority}
+                  onSelect={(id) => patchDoc(active.id, { selectedFixId: id })}
+                  onPriorityChange={changePriority}
+                  onAccept={() => acceptChosenFix(diffHotspot)}
                   onClose={() => patchDoc(active.id, { diffIndex: null })}
                 />
               )}
-              {active.result?.flameGraph && active.result.flameGraph.length > 0 && !diffHotspot && (
+              {activeResult?.flameGraph && activeResult.flameGraph.length > 0 &&
+                !(diffHotspot?.fixes && diffHotspot.fixes.length > 0) && (
                 <FlameGraph
-                  nodes={active.result.flameGraph}
-                  measured={active.result.measured}
+                  nodes={activeResult.flameGraph}
+                  measured={activeResult.measured}
                   onSelect={(n) => {
-                    const idx = active.result!.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
+                    const idx = activeResult.hotspots.findIndex((h) => h.startLine <= n.endLine && h.endLine >= n.startLine);
                     if (idx >= 0) patchDoc(active.id, { activeIndex: idx });
                   }}
                 />
@@ -473,12 +563,15 @@ export default function Home() {
         {/* ── Diagnostics ─────────────────────────────────────────────── */}
         <aside className={`bg-canvas md:w-[500px] md:shrink-0 md:xl:w-[580px] ${mobileView === "editor" ? "hidden md:block" : "flex flex-1 flex-col overflow-hidden md:block"}`}>
           <HotspotPanel
-            result={active.result}
-            loading={active.loading}
-            error={active.error}
+            result={activeResult}
+            loading={activeLoading}
+            error={activeError}
             activeIndex={active.activeIndex}
             onSelect={(i) => patchDoc(active.id, { activeIndex: i })}
-            onViewFix={(i) => patchDoc(active.id, { diffIndex: i })}
+            onViewFix={(i) => {
+              const hs = activeResult?.hotspots[i];
+              patchDoc(active.id, { diffIndex: i, selectedFixId: hs?.fixes ? priorityPickId(hs.fixes, fixPriority) : null });
+            }}
           />
         </aside>
       </div>
@@ -515,7 +608,7 @@ export default function Home() {
             <rect x="14" y="2" width="4" height="16" rx="1" />
           </svg>
           Results
-          {active.result && !active.loading && mobileView === "editor" && (
+          {activeResult && !activeLoading && mobileView === "editor" && (
             <span className="absolute right-[calc(50%-4px)] top-2 h-2 w-2 rounded-full bg-accent" />
           )}
           {mobileView === "results" && <span className="absolute bottom-0 left-1/2 right-0 h-0.5 bg-accent" />}

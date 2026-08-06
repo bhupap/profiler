@@ -1,6 +1,7 @@
 "use client";
 
-import type { AnalysisResult, Hotspot } from "@/lib/types";
+import { useState } from "react";
+import type { AnalysisResult, Hotspot, Severity } from "@/lib/types";
 import { useBeta } from "@/lib/beta";
 import { prettyComplexity } from "@/lib/format";
 
@@ -23,6 +24,10 @@ const SEV: Record<Hotspot["severity"], { label: string; text: string; dot: strin
 export default function HotspotPanel({
   result, loading, error, activeIndex, onSelect, onViewFix,
 }: Props) {
+  // Severity filter — each level toggles independently (mirrors the review-queue
+  // chips). Lives here because only this panel cares about it.
+  const [sevOn, setSevOn] = useState<Record<Severity, boolean>>({ high: true, medium: true, low: true });
+
   if (loading) return <LoadingState />;
   if (error)   return <EmptyState title="Something went wrong" body={error} tone="error" />;
   if (!result) return <EmptyState title="Ready when you are" body="Paste code or upload a file, then run the analysis." />;
@@ -33,6 +38,13 @@ export default function HotspotPanel({
     low: result.hotspots.filter((h) => h.severity === "low").length,
   };
   const total = result.hotspots.length;
+  // Keep the ORIGINAL index so selection/fix callbacks stay correct after filtering.
+  const visible = result.hotspots
+    .map((hs, i) => ({ hs, i }))
+    .filter(({ hs }) => sevOn[hs.severity]);
+  const allOn = sevOn.high && sevOn.medium && sevOn.low;
+  const toggleSev = (k: Severity) => setSevOn((s) => ({ ...s, [k]: !s[k] }));
+  const setAll = () => setSevOn(allOn ? { high: false, medium: false, low: false } : { high: true, medium: true, low: true });
 
   return (
     <div className="flex h-full flex-col">
@@ -107,6 +119,17 @@ export default function HotspotPanel({
         )}
       </div>
 
+      {/* ── Severity filter ───────────────────────────────────────────── */}
+      {total > 0 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+          <span className="mr-0.5 font-mono text-2xs uppercase tracking-wider text-inkDim">Filter</span>
+          <FilterChip label="All" tone="all" on={allOn} onClick={setAll} />
+          <FilterChip label="High" tone="high" on={sevOn.high} count={counts.high} onClick={() => toggleSev("high")} />
+          <FilterChip label="Med" tone="medium" on={sevOn.medium} count={counts.medium} onClick={() => toggleSev("medium")} />
+          <FilterChip label="Low" tone="low" on={sevOn.low} count={counts.low} onClick={() => toggleSev("low")} />
+        </div>
+      )}
+
       {/* ── Hotspot accordion: the only scrolling region ──────────────── */}
       <div className="custom-scroll flex-1 overflow-y-auto">
         {total === 0 ? (
@@ -115,9 +138,11 @@ export default function HotspotPanel({
           ) : (
             <EmptyState title="Clean run" body="No algorithmic issues worth flagging." />
           )
+        ) : visible.length === 0 ? (
+          <EmptyState title="Nothing matches" body="No hotspots at the selected severities. Adjust the filter above." />
         ) : (
           <ul className="space-y-1.5 p-4">
-            {result.hotspots.map((hs, i) => (
+            {visible.map(({ hs, i }) => (
               <HotspotRow
                 key={i}
                 index={i}
@@ -150,6 +175,9 @@ function HotspotRow({
 }) {
   const s = SEV[hs.severity];
   const { beta } = useBeta();
+  const fixCount = hs.fixes?.length ?? 0;
+  const hasFix = fixCount > 0 || !!hs.suggestedCode;
+  const fixLabel = fixCount > 1 ? `Compare ${fixCount} fixes` : "View suggested code";
   return (
     <li
       className={`overflow-hidden rounded-xl border transition-colors ${
@@ -166,6 +194,11 @@ function HotspotRow({
         <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
         <span className="font-mono text-2xs text-inkDim">HS-{String(index + 1).padStart(2, "0")}</span>
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{prettyComplexity(hs.issue)}</span>
+        {fixCount > 1 && (
+          <span className="shrink-0 rounded-full border border-accentLine bg-accentSoft px-1.5 py-0.5 font-mono text-[10px] text-accentHi">
+            {fixCount} fixes
+          </span>
+        )}
         <span className="shrink-0 font-mono text-2xs text-inkDim">
           L{hs.startLine}{hs.endLine !== hs.startLine ? `–${hs.endLine}` : ""}
         </span>
@@ -175,10 +208,18 @@ function HotspotRow({
       <div className={`acc-body ${open ? "open" : ""}`}>
         <div className="acc-inner">
           <div className="space-y-3 px-4 pb-4 pt-0.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <span className={`font-mono text-2xs font-medium uppercase tracking-wider ${s.text}`}>
                 {s.label} severity
               </span>
+              {typeof hs.confidence === "number" && (
+                <span className="flex items-center gap-1.5 font-mono text-2xs text-inkDim" title="Confidence this is a real issue">
+                  <span className="h-1 w-14 overflow-hidden rounded-full bg-surfaceMax">
+                    <span className="block h-full rounded-full bg-accent" style={{ width: `${hs.confidence}%` }} />
+                  </span>
+                  {hs.confidence}%
+                </span>
+              )}
             </div>
 
             <p className="text-sm leading-relaxed text-inkMute">{prettyComplexity(hs.explanation)}</p>
@@ -198,14 +239,14 @@ function HotspotRow({
               </div>
             )}
 
-            {hs.suggestedCode &&
+            {hasFix &&
               (beta ? (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onViewFix(); }}
                   className="group flex w-full items-center justify-center gap-2 rounded-lg border border-accentLine bg-accentSoft px-3 py-2.5 text-xs font-medium text-accentHi transition-all hover:shadow-glow"
                 >
-                  View suggested code
+                  {fixLabel}
                   <span className="transition-transform group-hover:translate-x-0.5">→</span>
                 </button>
               ) : (
@@ -216,7 +257,7 @@ function HotspotRow({
                   onClick={(e) => { e.stopPropagation(); onViewFix(); }}
                   className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-xs font-medium text-inkDim"
                 >
-                  View suggested code
+                  {fixLabel}
                   <span className="rounded-full border border-border bg-surfaceMax px-2 py-0.5 text-2xs uppercase tracking-wider text-inkMute">
                     soon
                   </span>
@@ -231,6 +272,36 @@ function HotspotRow({
         .chev-open { transform:rotate(45deg) }
       `}</style>
     </li>
+  );
+}
+
+function FilterChip({
+  label, tone, on, count, onClick,
+}: {
+  label: string;
+  tone: "all" | Severity;
+  on: boolean;
+  count?: number;
+  onClick: () => void;
+}) {
+  const toneStyle: Record<string, string> = {
+    all: "border-borderStrong text-ink",
+    high: "border-sev-high/40 text-sev-high",
+    medium: "border-sev-med/40 text-sev-med",
+    low: "border-sev-low/40 text-sev-low",
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={on}
+      className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs font-medium transition-all ${toneStyle[tone]} ${
+        on ? "bg-surfaceHi opacity-100" : "bg-surface opacity-40 hover:opacity-70"
+      }`}
+    >
+      {label}
+      {typeof count === "number" && <span className="font-mono text-[10px] text-inkDim">{count}</span>}
+    </button>
   );
 }
 

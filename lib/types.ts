@@ -4,6 +4,28 @@ export type Severity = "high" | "medium" | "low";
 // gated behind feature flags (see lib/features.ts).
 export type AnalysisMode = "complexity" | "security" | "memory" | "runtime";
 
+// Where a fix came from. "rule" = the deterministic rule engine (instant, zero
+// API cost, confidence 100). "ai" = the model.
+export type FixSource = "rule" | "ai";
+
+// What the user wants a fix optimized for. Re-ranks the candidate fixes and
+// biases the model. "balanced" = the model's own overall pick.
+export type FixPriority = "balanced" | "speed" | "memory" | "simplicity" | "cost";
+
+// One candidate fix for a hotspot. A hotspot can carry several so the user can
+// weigh the trade-offs (speed vs. memory vs. smallest change) and pick one.
+export type FixOption = {
+  id: string;            // stable within a result; used for selection
+  title: string;         // short label, e.g. "Pre-sort outside the loop"
+  // drop-in replacement for lines startLine..endLine, same behaviour.
+  code: string;
+  // chips shown on the card: "O(n log n)", "extra memory", "smallest change"…
+  tradeoffs?: string[];
+  source: FixSource;
+  recommended?: boolean; // pre-selected option when present
+  note?: string;         // optional one-line rationale
+};
+
 export type Hotspot = {
   startLine: number;
   endLine: number;
@@ -12,8 +34,14 @@ export type Hotspot = {
   explanation: string;
   suggestion: string;
   algorithm?: string;
-  // the improved code for this hotspot, if the model could produce one.
-  // This is the snippet that replaces lines startLine..endLine.
+  // 0..100 — how sure we are this is a real issue. Rule hits are 100; the model
+  // reports its own for AI findings. Optional for back-compat.
+  confidence?: number;
+  // Candidate fixes, most-recommended first. The normalizer guarantees this is
+  // populated (folding in a legacy `suggestedCode` when that's all there is).
+  fixes?: FixOption[];
+  // Deprecated single-fix field. Kept so old payloads/reports still parse; the
+  // normalizer folds it into `fixes`.
   suggestedCode?: string;
 };
 

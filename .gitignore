@@ -10,3 +10,5 @@ build/
 .vercel
 next-env.d.ts
 *.tsbuildinfo
+profiler_qr_code.png
+Profiler_Short_Pitch_1_20260806.pptx

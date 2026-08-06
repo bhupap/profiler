@@ -12,6 +12,10 @@ export type FixSource = "rule" | "ai";
 // biases the model. "balanced" = the model's own overall pick.
 export type FixPriority = "balanced" | "speed" | "memory" | "simplicity" | "cost";
 
+// Result of the lightweight fix verifier (lib/verifyFix.ts). Fixes that hard-fail
+// are dropped before they reach the UI; "warn" fixes are shown with a caution.
+export type FixCheck = { verdict: "pass" | "warn"; issues: string[] };
+
 // One candidate fix for a hotspot. A hotspot can carry several so the user can
 // weigh the trade-offs (speed vs. memory vs. smallest change) and pick one.
 export type FixOption = {
@@ -24,6 +28,7 @@ export type FixOption = {
   source: FixSource;
   recommended?: boolean; // pre-selected option when present
   note?: string;         // optional one-line rationale
+  check?: FixCheck;      // verifier outcome (set server/client-side, post-normalize)
 };
 
 export type Hotspot = {

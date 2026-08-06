@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildSystemPrompt } from "@/lib/prompt";
+import { buildSystemPrompt, patternHints } from "@/lib/prompt";
 import { detectPatterns } from "@/lib/staticAnalysis";
 import { runRuleEngine } from "@/lib/rules";
 import { mergeRuleFindings } from "@/lib/normalize";
+import { verifyHotspots } from "@/lib/verifyFix";
 import { createCompletion } from "@/lib/anthropic";
 import { extractAnalysisJson } from "@/lib/parseAnalysis";
 import { validateAnalysis } from "@/lib/schema";
@@ -50,17 +51,26 @@ export async function POST(req: NextRequest) {
 
   const priorityNote = priorityInstruction(priority);
 
+  // The per-request instruction (lens + priority + hints). The code goes in its
+  // own cache_control block FIRST so the [system + code] prefix is identical
+  // across the parallel agents on this file — they read it from cache.
+  const instruction =
+    `Apply the "${mode}" lens to the ${language} code above.` +
+    (priorityNote ? `\n${priorityNote}` : "") +
+    `\n${patternHints(detectedPatterns)}` +
+    `\nReturn ONLY the JSON object from the system prompt — no prose, no fences.`;
+
   try {
-    const text = await createCompletion({
+    const { text, usage } = await createCompletion({
       apiKey: process.env.ANTHROPIC_API_KEY,
-      system: buildSystemPrompt(language, detectedPatterns, mode),
+      system: buildSystemPrompt(),
       messages: [
         {
           role: "user",
-          content:
-            `Analyze this ${language} code (${mode} lens). Remember: JSON only.` +
-            (priorityNote ? `\n${priorityNote}` : "") +
-            `\n\n\`\`\`${language}\n${code}\n\`\`\``,
+          content: [
+            { type: "text", text: `\`\`\`${language}\n${code}\n\`\`\``, cache_control: { type: "ephemeral" } },
+            { type: "text", text: instruction },
+          ],
         },
       ],
     });
@@ -72,8 +82,16 @@ export async function POST(req: NextRequest) {
     // deterministic rule findings/fixes and attach the static hints for the UI.
     const { result } = validateAnalysis(parsed);
     result.hotspots = mergeRuleFindings(ruleHotspots, result.hotspots);
+    // Verify every fix against the code it replaces; drop broken ones, flag warns.
+    result.hotspots = verifyHotspots(result.hotspots, code, language);
     result.detectedPatterns = detectedPatterns;
-    return NextResponse.json(result);
+
+    // Report cache effectiveness (visible in server logs + response header).
+    const cache = usage.cacheReadTokens > 0 ? "hit" : usage.cacheCreationTokens > 0 ? "write" : "miss";
+    console.log(
+      `[analyze] ${mode} cache=${cache} read=${usage.cacheReadTokens} write=${usage.cacheCreationTokens} in=${usage.inputTokens} out=${usage.outputTokens}`
+    );
+    return NextResponse.json(result, { headers: { "x-prompt-cache": cache } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown error";
     return err(`Analysis failed: ${message}`, 500);

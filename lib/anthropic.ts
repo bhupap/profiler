@@ -1,10 +1,16 @@
 /**
- * Minimal Anthropic client using the built-in `fetch`, with streaming.
+ * Minimal Anthropic client using the built-in `fetch`, with streaming +
+ * prompt caching.
  *
  * Replaces the `@anthropic-ai/sdk` dependency. We stream the completion (SSE)
  * and accumulate the text, so long generations don't stall on a single-response
  * timeout, and we read `stop_reason` from the stream to catch truncation.
- * Callers still get the full concatenated text once the stream ends.
+ *
+ * The system prompt is sent as a `cache_control: ephemeral` block, and callers
+ * can mark message blocks the same way (e.g. the code). Repeated requests that
+ * share that prefix — the three parallel agents on one file, a re-run, a batch —
+ * read it from cache at ~10% of the input price. We surface the cache token
+ * counts so the route can report hit/miss.
  */
 import {
   ANTHROPIC_API_URL,
@@ -13,14 +19,32 @@ import {
   MODEL,
 } from "./config";
 
-type Message = { role: "user" | "assistant"; content: string };
+type CacheControl = { type: "ephemeral" };
+export type ContentBlock = { type: "text"; text: string; cache_control?: CacheControl };
+type Message = { role: "user" | "assistant"; content: string | ContentBlock[] };
+
+export type CompletionUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number; // tokens written to cache (25% premium)
+  cacheReadTokens: number; // tokens served from cache (~90% cheaper)
+};
+
+export type CompletionResult = { text: string; usage: CompletionUsage };
 
 export async function createCompletion(params: {
   apiKey: string;
   system: string;
   messages: Message[];
   maxTokens?: number;
-}): Promise<string> {
+  cacheSystem?: boolean;
+}): Promise<CompletionResult> {
+  // Send the system prompt as a cacheable block (a stable prefix across requests).
+  const system =
+    params.cacheSystem === false
+      ? params.system
+      : [{ type: "text", text: params.system, cache_control: { type: "ephemeral" } }];
+
   const res = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
     headers: {
@@ -32,7 +56,7 @@ export async function createCompletion(params: {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: params.maxTokens ?? ANTHROPIC_MAX_TOKENS,
-      system: params.system,
+      system,
       messages: params.messages,
       stream: true,
     }),
@@ -56,6 +80,7 @@ export async function createCompletion(params: {
   let buffer = "";
   let text = "";
   let stopReason: string | null = null;
+  const usage: CompletionUsage = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
 
   // Parse the SSE stream line by line; we only care about `data:` payloads.
   for (;;) {
@@ -75,6 +100,8 @@ export async function createCompletion(params: {
       let evt: {
         type?: string;
         delta?: { type?: string; text?: string; stop_reason?: string };
+        message?: { usage?: Record<string, number> };
+        usage?: Record<string, number>;
         error?: { message?: string };
       };
       try {
@@ -85,8 +112,15 @@ export async function createCompletion(params: {
 
       if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
         text += evt.delta.text ?? "";
-      } else if (evt.type === "message_delta" && evt.delta?.stop_reason) {
-        stopReason = evt.delta.stop_reason;
+      } else if (evt.type === "message_start" && evt.message?.usage) {
+        const u = evt.message.usage;
+        usage.inputTokens = u.input_tokens ?? 0;
+        usage.outputTokens = u.output_tokens ?? 0;
+        usage.cacheCreationTokens = u.cache_creation_input_tokens ?? 0;
+        usage.cacheReadTokens = u.cache_read_input_tokens ?? 0;
+      } else if (evt.type === "message_delta") {
+        if (evt.delta?.stop_reason) stopReason = evt.delta.stop_reason;
+        if (evt.usage?.output_tokens != null) usage.outputTokens = evt.usage.output_tokens;
       } else if (evt.type === "error") {
         throw new Error(evt.error?.message ?? "Model stream error");
       }
@@ -100,5 +134,5 @@ export async function createCompletion(params: {
     );
   }
 
-  return text.trim();
+  return { text: text.trim(), usage };
 }

@@ -130,6 +130,18 @@ export default function FixChooser({
                 <span className={`shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider ${src.className}`}>
                   {src.label}
                 </span>
+                {fix.check?.verdict === "warn" ? (
+                  <span
+                    title={fix.check.issues.join(" · ")}
+                    className="shrink-0 rounded-full border border-sev-med/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-sev-med"
+                  >
+                    ⚠ verify
+                  </span>
+                ) : fix.check?.verdict === "pass" ? (
+                  <span title="Passed structural checks" aria-label="verified" className="shrink-0 font-mono text-[11px] text-good">
+                    ✓
+                  </span>
+                ) : null}
               </button>
 
               {fix.tradeoffs && fix.tradeoffs.length > 0 && (
@@ -156,6 +168,11 @@ export default function FixChooser({
         })}
       </div>
 
+      {selected?.check?.verdict === "warn" && selected.check.issues.length > 0 && (
+        <div className="border-t border-border px-4 py-2.5 text-2xs leading-relaxed text-sev-med">
+          ⚠ Verifier: {selected.check.issues.join("; ")}. Review the diff before accepting.
+        </div>
+      )}
       {selected?.note && (
         <div className="border-t border-border px-4 py-2.5 text-2xs leading-relaxed text-inkDim">{selected.note}</div>
       )}

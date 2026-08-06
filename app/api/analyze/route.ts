@@ -45,9 +45,9 @@ export async function POST(req: NextRequest) {
 
   // Static pre-pass: detect patterns first, then feed them to the model.
   const detectedPatterns = detectPatterns(code, language);
-  // Deterministic rule engine: instant, zero-cost findings + rule-authored fixes
-  // that get merged alongside the model's fixes.
-  const ruleHotspots = runRuleEngine(code, language);
+  // Deterministic rule engine — the current rules are algorithmic, so only merge
+  // them into the complexity lens (avoids duplicating them under security/memory).
+  const ruleHotspots = mode === "complexity" ? runRuleEngine(code, language) : [];
 
   const priorityNote = priorityInstruction(priority);
 

@@ -24,6 +24,7 @@ type Props = {
   onPriorityChange: (p: FixPriority) => void;
   onAccept: () => void;
   onClose: () => void;
+  hideActions?: boolean; // embed mode: the parent (e.g. review queue) owns Accept/Skip
 };
 
 const SOURCE: Record<FixOption["source"], { label: string; className: string }> = {
@@ -32,7 +33,7 @@ const SOURCE: Record<FixOption["source"], { label: string; className: string }> 
 };
 
 export default function FixChooser({
-  original, fixes, selectedId, priority, onSelect, onPriorityChange, onAccept, onClose,
+  original, fixes, selectedId, priority, onSelect, onPriorityChange, onAccept, onClose, hideActions,
 }: Props) {
   const ranked = rankFixes(fixes, priority);
   const recId = priorityPickId(fixes, priority);
@@ -54,22 +55,24 @@ export default function FixChooser({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-inkMute transition-colors hover:border-borderStrong hover:text-ink"
-          >
-            Dismiss
-          </button>
-          <button
-            onClick={onAccept}
-            disabled={!selected}
-            className="rounded-lg px-3.5 py-1.5 text-xs font-semibold text-canvas transition-all hover:brightness-110 disabled:opacity-40"
-            style={{ background: "#5DCAA5", boxShadow: "0 0 18px rgba(93,202,165,0.25)" }}
-          >
-            Accept fix
-          </button>
-        </div>
+        {!hideActions && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-inkMute transition-colors hover:border-borderStrong hover:text-ink"
+            >
+              Dismiss
+            </button>
+            <button
+              onClick={onAccept}
+              disabled={!selected}
+              className="rounded-lg px-3.5 py-1.5 text-xs font-semibold text-canvas transition-all hover:brightness-110 disabled:opacity-40"
+              style={{ background: "#5DCAA5", boxShadow: "0 0 18px rgba(93,202,165,0.25)" }}
+            >
+              Accept fix
+            </button>
+          </div>
+        )}
       </div>
 
       {/* priority selector — only meaningful when there's a choice */}

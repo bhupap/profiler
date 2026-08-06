@@ -22,6 +22,7 @@ import FixChooser from "@/components/FixChooser";
 import FlameGraph from "@/components/FlameGraph";
 import LanguageMenu from "@/components/LanguageMenu";
 import GitHubImportModal from "@/components/GitHubImportModal";
+import ReviewQueue, { type ReviewFile } from "@/components/ReviewQueue";
 
 const CodeEditor = dynamic(() => import("@/components/CodeEditor"), { ssr: false });
 
@@ -88,6 +89,7 @@ export default function Home() {
   const [activeLens, setActiveLens] = useState<AnalysisMode>("complexity");
   const [fixPriority, setFixPriority] = useState<FixPriority>("balanced");
   const [githubOpen, setGithubOpen] = useState(false);
+  const [reviewFiles, setReviewFiles] = useState<ReviewFile[] | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [mobileView, setMobileView] = useState<"editor" | "results">("editor");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -218,9 +220,23 @@ export default function Home() {
     downloadText(`${docName(active)}.report.md`, md);
   }
 
-  // Open one or many imported files as tabs (dedupe by name; refresh matches).
-  function importFromGitHub(files: { name: string; code: string; language: SupportedLanguage }[]) {
+  // GitHub import: a whole repo (2+ files) goes into the Review Queue for triage;
+  // a single file opens straight in a tab.
+  function importFromGitHub(files: ReviewFile[]) {
     setGithubOpen(false);
+    if (files.length === 0) return;
+    if (files.length >= 2) { setReviewFiles(files); return; }
+    openFilesAsTabs(files);
+  }
+
+  // Close the review queue, opening the (possibly fix-applied) files as tabs.
+  function closeReview(files: ReviewFile[]) {
+    setReviewFiles(null);
+    if (files.length > 0) openFilesAsTabs(files);
+  }
+
+  // Open one or many files as tabs (dedupe by name; refresh matches).
+  function openFilesAsTabs(files: ReviewFile[]) {
     if (files.length === 0) return;
     const byName = new Map(docs.map((d) => [d.filename, d.id] as const));
     const updates = new Map<string, (typeof files)[number]>();
@@ -666,6 +682,8 @@ export default function Home() {
       {githubOpen && (
         <GitHubImportModal onClose={() => setGithubOpen(false)} onImport={importFromGitHub} />
       )}
+
+      {reviewFiles && <ReviewQueue initialFiles={reviewFiles} onClose={closeReview} />}
     </main>
   );
 }

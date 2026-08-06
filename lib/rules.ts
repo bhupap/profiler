@@ -1,4 +1,4 @@
-import type { Hotspot, FixOption, SupportedLanguage } from "./types";
+import type { Hotspot, FixOption, SupportedLanguage, Severity } from "./types";
 
 /**
  * The rule engine.
@@ -31,6 +31,16 @@ export interface Rule {
   id: string;
   /** one-line label, also usable as a prompt hint. */
   label: string;
+  /** what it detects + why it matters (for the rules browser). */
+  description: string;
+  /** grouping shown on the rules page. */
+  category: string;
+  /** the severity this rule typically assigns. */
+  severity: Severity;
+  /** true when the rule can emit a provably-safe code fix (not just detect). */
+  autoFix: boolean;
+  /** illustrative before/after for the rules browser. */
+  example: { before: string; after: string };
   languages: SupportedLanguage[] | "all";
   scan: (ctx: RuleContext) => Hotspot[];
 }
@@ -80,6 +90,14 @@ const RULES: Rule[] = [
   {
     id: "indexof-includes",
     label: "indexOf(...) !== -1 membership check — use .includes()",
+    description: "Flags `.indexOf(x) !== -1` used only to test membership and rewrites it to `.includes(x)` — clearer intent, same complexity. The one rule that ships a deterministic code fix.",
+    category: "Membership",
+    severity: "low",
+    autoFix: true,
+    example: {
+      before: "if (arr.indexOf(x) !== -1) { … }",
+      after: "if (arr.includes(x)) { … }",
+    },
     languages: ["javascript", "typescript"],
     scan: ({ lines }) => {
       const out: Hotspot[] = [];
@@ -115,6 +133,14 @@ const RULES: Rule[] = [
   {
     id: "nested-loops",
     label: "Nested loops — likely O(n^2) or worse",
+    description: "Detects loop nests (by indentation depth) where inner work scales with input — the classic O(n²)+ hotspot. Leaves the rewrite to the model; suggests a Map/Set index.",
+    category: "Loops",
+    severity: "high",
+    autoFix: false,
+    example: {
+      before: "for (const a of xs)\n  for (const b of ys)\n    compare(a, b);",
+      after: "// index one side, then a single pass\nconst index = new Map(ys.map(y => [y.id, y]));",
+    },
     languages: "all",
     scan: ({ loopDepth, lines }) => {
       const maxDepth = Math.max(0, ...loopDepth);
@@ -142,6 +168,14 @@ const RULES: Rule[] = [
   {
     id: "sort-in-loop",
     label: "Sort inside a loop — re-sorting every iteration",
+    description: "Flags a `.sort()` / `sorted()` call inside a loop, which re-sorts the whole collection every iteration — O(n² log n) overall. Hoist the sort above the loop.",
+    category: "Loops",
+    severity: "high",
+    autoFix: false,
+    example: {
+      before: "for (const x of xs) {\n  const top = items.sort()[0];\n}",
+      after: "const sorted = [...items].sort();\nfor (const x of xs) {\n  const top = sorted[0];\n}",
+    },
     languages: "all",
     scan: ({ lines, loopDepth }) => {
       const out: Hotspot[] = [];
@@ -167,6 +201,14 @@ const RULES: Rule[] = [
   {
     id: "await-in-foreach",
     label: "await inside .forEach — the loop doesn't wait",
+    description: "`.forEach(async …)` ignores the promise each callback returns, so surrounding code runs before the work finishes and errors are swallowed. Use for…of (sequential) or Promise.all (parallel).",
+    category: "Async",
+    severity: "medium",
+    autoFix: false,
+    example: {
+      before: "items.forEach(async (i) => {\n  await save(i);\n});",
+      after: "for (const i of items) {\n  await save(i);\n}",
+    },
     languages: ["javascript", "typescript"],
     scan: ({ lines }) => {
       const out: Hotspot[] = [];
@@ -193,6 +235,14 @@ const RULES: Rule[] = [
   {
     id: "membership-in-loop",
     label: "Array membership test inside a loop — O(n) per iteration",
+    description: "Scanning an array/list for membership inside a loop is O(n) each pass, making the loop O(n²). Build a Set/set once before the loop for O(1) lookups.",
+    category: "Membership",
+    severity: "medium",
+    autoFix: false,
+    example: {
+      before: "for (const x of xs) {\n  if (list.includes(x)) hit(x);\n}",
+      after: "const set = new Set(list);\nfor (const x of xs) {\n  if (set.has(x)) hit(x);\n}",
+    },
     languages: ["javascript", "typescript", "python"],
     scan: ({ lines, loopDepth, language }) => {
       const out: Hotspot[] = [];
@@ -242,5 +292,14 @@ export function runRuleEngine(code: string, language: SupportedLanguage): Hotspo
   return findings;
 }
 
-/** The rule catalogue, for the (planned) rules browser page. */
-export const RULE_CATALOGUE = RULES.map((r) => ({ id: r.id, label: r.label, languages: r.languages }));
+/** The rule catalogue, for the rules browser page. */
+export const RULE_CATALOGUE = RULES.map((r) => ({
+  id: r.id,
+  label: r.label,
+  description: r.description,
+  category: r.category,
+  severity: r.severity,
+  autoFix: r.autoFix,
+  example: r.example,
+  languages: r.languages,
+}));

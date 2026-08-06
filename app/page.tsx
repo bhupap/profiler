@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import type { AnalysisMode, AnalysisResult, SupportedLanguage, Hotspot, FixPriority } from "@/lib/types";
 import { isSample, sampleFor } from "@/lib/samples";
 import { randomSnippet } from "@/lib/demoSnippets";
@@ -400,6 +401,14 @@ export default function Home() {
 
           {/* Language picker (affects the active tab) */}
           <LanguageMenu value={active.language} onChange={handleLanguageChange} />
+
+          <Link
+            href="/rules"
+            title="Browse the rule engine"
+            className="hidden rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-inkMute transition-colors hover:border-borderStrong hover:text-ink sm:block"
+          >
+            Rules
+          </Link>
 
           <button
             onClick={() => fileInputRef.current?.click()}
